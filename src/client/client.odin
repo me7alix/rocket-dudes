@@ -42,7 +42,7 @@ respawn :: proc() {
 } 
 
 tcp_receive_thread :: proc(sock: net.TCP_Socket) {
-  buf: [32*1024]u8
+  buf: [size_of(logic.MapChanges)]u8
 
   for {
     _, rerr := net.recv_tcp(sock, buf[:size_of(buf)])

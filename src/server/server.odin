@@ -77,7 +77,7 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 }
 
 tcp_client_thread :: proc(clientSock: net.TCP_Socket, clientEndp: net.Endpoint) {
-  buf: [32*1028]u8
+  buf: [size_of(logic.MapChanges)]u8
   playerID: logic.ID
   defer net.close(clientSock)
 

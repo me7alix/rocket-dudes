@@ -25,7 +25,7 @@ Map :: struct {
   ptr: u32,
 }
 
-MAX_MAP_CHANGES :: 2048
+MAX_MAP_CHANGES :: 4096
 
 MapChange :: struct {
   pos: rl.Vector2,
