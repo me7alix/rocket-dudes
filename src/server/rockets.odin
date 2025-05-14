@@ -31,18 +31,16 @@ rocket_check_meatshot :: proc(rocket: logic.Rocket, buf: []u8) -> bool {
     pos = rocket.pos,
     rad = logic.ROCKET_EXP_RAD,
   }
+  mem.copy(mem.raw_data(buf[:]), &explosion, size_of(explosion))
 
   if sync.mutex_guard(&psMutex) {
-    for _, player in players {
-      if logic.intersect_circle_rect(rocket.pos, logic.ROCKET_RAD, player.playerInfo.pos,
-        player.playerInfo.pos + logic.PLAYER_RECT) && rocket.id != player.playerInfo.id {    
-
-        mem.copy(mem.raw_data(buf[:]), &explosion, size_of(explosion))
-        if sync.mutex_guard(&tcpSendMutex) {
+    if sync.mutex_guard(&tsMutex) {
+      for _, player in players {
+        if logic.intersect_circle_rect(rocket.pos, logic.ROCKET_RAD, player.playerInfo.pos,
+          player.playerInfo.pos + logic.PLAYER_RECT) && rocket.id != player.playerInfo.id {    
           net.send_tcp(player.tcpSock, buf[:size_of(explosion)])
+          isHit = true
         }
-
-        isHit = true
       }
     }
   }
@@ -55,9 +53,9 @@ rocket_check_meatshot :: proc(rocket: logic.Rocket, buf: []u8) -> bool {
       mapChanges.changes[mapChanges.count] = change.mapChange
       mapChanges.count += 1
     }
-    for _, pl in players {
-      mem.copy(mem.raw_data(buf[:]), &change, size_of(change))
-      if sync.mutex_guard(&tcpSendMutex) {
+    mem.copy(mem.raw_data(buf[:]), &change, size_of(change))
+    if sync.mutex_guard(&tsMutex) {
+      for _, pl in players {
         net.send_tcp(pl.tcpSock, buf[:size_of(change)])
       }
     }
@@ -70,7 +68,7 @@ rocket_map_collision :: proc(rocket: logic.Rocket, buf: []u8) -> bool {
   sync.mutex_lock(&mMutex)
   isCollision := logic.map_detect_collision(m, rocket.pos-(rocketBox/2.0), rocketBox)
   sync.mutex_unlock(&mMutex)
-  
+
   if !isCollision{
     return false
   }
@@ -97,16 +95,14 @@ rocket_map_collision :: proc(rocket: logic.Rocket, buf: []u8) -> bool {
   }
 
   if sync.mutex_guard(&psMutex) {
-    for _, player in players {
-      mem.copy(mem.raw_data(buf[:]), &change, size_of(change))
-      if sync.mutex_guard(&tcpSendMutex) {
+    if sync.mutex_guard(&tsMutex) {
+      for _, player in players {
+        mem.copy(mem.raw_data(buf[:]), &change, size_of(change))
         net.send_tcp(player.tcpSock, buf[:size_of(change)])
-      }
 
-      if logic.intersect_circle_rect(rocket.pos, logic.ROCKET_EXP_RAD, player.playerInfo.pos, 
-        player.playerInfo.pos + logic.PLAYER_RECT) {
-        mem.copy(mem.raw_data(buf[:]), &explosion, size_of(explosion))
-        if sync.mutex_guard(&tcpSendMutex) {
+        if logic.intersect_circle_rect(rocket.pos, logic.ROCKET_EXP_RAD, 
+          player.playerInfo.pos, player.playerInfo.pos + logic.PLAYER_RECT) {
+          mem.copy(mem.raw_data(buf[:]), &explosion, size_of(explosion))
           net.send_tcp(player.tcpSock, buf[:size_of(explosion)])
         }
       }

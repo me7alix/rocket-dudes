@@ -9,6 +9,7 @@ import "core:strings"
 import "core:strconv"
 import "core:sync"
 import "core:thread"
+import "core:math"
 import "core:math/rand"
 import "base:runtime"
 import rl "vendor:raylib"
@@ -89,12 +90,12 @@ tcp_receive_thread :: proc(sock: net.TCP_Socket) {
 
       expVec := plinf.pos - expPacket.pos
       maxRad := expPacket.rad + logic.PLAYER_RECT.y/2.0
-      normForce := 1 - rl.Vector2Length(expVec) / maxRad
+      normForce := math.clamp(1 - rl.Vector2Length(expVec) / maxRad, 0, 1)
 
       if sync.mutex_guard(&piMutex) {
-        plinf.vel += rl.Vector2Normalize(expVec) * normForce * 30
+        plinf.vel += rl.Vector2Normalize(expVec) * normForce * logic.ROCKET_EXP_FORCE
         if plinf.id != expPacket.id {
-          plinf.health -= normForce * 50
+          plinf.health -= normForce * logic.ROCKET_EXP_DAMAGE
           if plinf.health <= 0 {
             respawn()
           }

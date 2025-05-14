@@ -11,6 +11,9 @@ import "core:strconv"
 import rl "vendor:raylib"
 import "../logic/"
 
+m: ^logic.Map
+mMutex: sync.Mutex
+tsMutex: sync.Mutex
 idCnt: logic.ID
 gamestate: logic.Gamestate
 mapChanges: logic.MapChanges
@@ -19,39 +22,25 @@ rockets: [dynamic]logic.Rocket
 rsMutex: sync.Mutex
 players: map[logic.ID]logic.Player
 psMutex: sync.Mutex
-m: ^logic.Map
-mMutex: sync.Mutex
-tcpSendMutex: sync.Mutex
 
 udp_send_thread :: proc(sock: net.UDP_Socket) {
   buf: [2048]u8
   emptyEndp := net.Endpoint{}
-  toRemove := make([dynamic]logic.ID)
-  defer delete(toRemove)
 
   for {
     defer time.sleep(time.Millisecond * 12)
 
     if sync.mutex_guard(&psMutex) {
       logic.gamestate_set_players_info(&gamestate, players)
-      clear(&toRemove)
 
       for id, player in players {
         if player.udpEndp == emptyEndp {
-          continue
-        }
-        if (time.now()._nsec - player.lastSeen._nsec) / time.duration_nanoseconds(time.Second) > 2 {
-          append(&toRemove, id)
           continue
         }
         _, serr := net.send_udp(sock, buf[:size_of(gamestate)], player.udpEndp)
         if serr != nil {
           fmt.printf("udp send error: %v\n", serr)
         }
-      }
-
-      for id in toRemove { 
-        delete_key(&players, id)
       }
     }
 
@@ -87,15 +76,23 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
   }
 }
 
-client_thread :: proc(clientSock: net.TCP_Socket, client_ep: net.Endpoint) {
+tcp_client_thread :: proc(clientSock: net.TCP_Socket, clientEndp: net.Endpoint) {
   buf: [32*1028]u8
+  playerID: logic.ID
   defer net.close(clientSock)
 
   for {
-    _, rerr := net.recv_tcp(clientSock, buf[:len(buf)])
+    n, rerr := net.recv_tcp(clientSock, buf[:len(buf)])
     if rerr != nil {
       fmt.printf("tcp receive error: %v\n", rerr) 
       return
+    }
+
+    if n <= 0 {
+      if sync.mutex_guard(&psMutex) {
+        delete_key(&players, playerID)
+      }
+      break
     }
 
     type := logic.PacketType{}
@@ -117,9 +114,8 @@ client_thread :: proc(clientSock: net.TCP_Socket, client_ep: net.Endpoint) {
       }
 
       if sync.mutex_guard(&psMutex) {
-        for _, player in players {
-          mem.copy(&change, mem.raw_data(buf[:]), size_of(change))
-          if sync.mutex_guard(&tcpSendMutex) {
+        if sync.mutex_guard(&tsMutex) {
+          for _, player in players {
             net.send_tcp(player.tcpSock, buf[:size_of(change)])
           }
         }
@@ -139,10 +135,11 @@ client_thread :: proc(clientSock: net.TCP_Socket, client_ep: net.Endpoint) {
         playerID = idCnt,
       }
 
+      playerID = idCnt
       idCnt += 1
 
       mem.copy(mem.raw_data(buf[:]), &packet, size_of(packet))
-      if sync.mutex_guard(&tcpSendMutex) {
+      if sync.mutex_guard(&tsMutex) {
         net.send_tcp(clientSock, buf[:size_of(packet)])
       }
      
@@ -156,7 +153,7 @@ client_thread :: proc(clientSock: net.TCP_Socket, client_ep: net.Endpoint) {
       }
 
       mem.copy(mem.raw_data(buf[:]), &mapChangesPacket, size_of(mapChangesPacket))
-      if sync.mutex_guard(&tcpSendMutex) {
+      if sync.mutex_guard(&tsMutex) {
         net.send_tcp(clientSock, buf[:size_of(mapChanges)])
       }
 
@@ -165,7 +162,6 @@ client_thread :: proc(clientSock: net.TCP_Socket, client_ep: net.Endpoint) {
       mem.copy(&packet, mem.raw_data(buf[:]), size_of(packet))
       if sync.mutex_guard(&rsMutex) {
         append(&rockets, packet.rocket)
-        fmt.println(packet.rocket)
       }
     }
   }
@@ -179,7 +175,7 @@ tcp_thread :: proc(tcp_listener: net.TCP_Socket) {
       continue
     }
 
-    thread.create_and_start_with_poly_data2(clientSock, clientEndp, client_thread)
+    thread.create_and_start_with_poly_data2(clientSock, clientEndp, tcp_client_thread)
   }
 }
 
@@ -224,5 +220,7 @@ main :: proc() {
   thread.create_and_start_with_poly_data(udpSock, udp_send_thread)
   thread.create_and_start(rockets_udpate_thread)
 
-  for {}
+  for {
+    time.sleep(time.Second)
+  }
 }
