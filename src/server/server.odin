@@ -24,14 +24,16 @@ players: map[logic.ID]logic.Player
 psMutex: sync.Mutex
 
 udp_send_thread :: proc(sock: net.UDP_Socket) {
-  buf: [2048]u8
+  buf: [size_of(logic.Gamestate)]u8
   emptyEndp := net.Endpoint{}
 
   for {
-    defer time.sleep(time.Millisecond * 12)
-
+    if sync.mutex_guard(&rsMutex) {
+      logic.gamestate_set_rockets(&gamestate, rockets)
+    }
     if sync.mutex_guard(&psMutex) {
       logic.gamestate_set_players_info(&gamestate, players)
+      mem.copy(mem.raw_data(buf[:]), &gamestate, size_of(gamestate))
 
       for id, player in players {
         if player.udpEndp == emptyEndp {
@@ -44,16 +46,13 @@ udp_send_thread :: proc(sock: net.UDP_Socket) {
       }
     }
 
-    if sync.mutex_guard(&rsMutex) {
-      logic.gamestate_set_rockets(&gamestate, rockets)
-    }
-
-    mem.copy(mem.raw_data(buf[:]), &gamestate, size_of(gamestate)) 
+    time.sleep(time.Millisecond * 12)
   }
 }
 
 udp_receive_thread :: proc(sock: net.UDP_Socket) {
-  buf: [2048]u8
+  buf: [size_of(logic.PlayerInfo)]u8
+
   for {
     _, peer, rerr := net.recv_udp(sock, buf[:len(buf)])
     if rerr != nil {
@@ -77,7 +76,7 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 }
 
 tcp_client_thread :: proc(clientSock: net.TCP_Socket, clientEndp: net.Endpoint) {
-  buf: [size_of(logic.MapChanges)]u8
+  buf: [size_of(logic.PacketMapChanges)]u8
   playerID: logic.ID
   defer net.close(clientSock)
 
