@@ -42,7 +42,7 @@ respawn :: proc() {
 } 
 
 tcp_receive_thread :: proc(sock: net.TCP_Socket) {
-  buf: [size_of(logic.MapChanges)]u8
+  buf: [size_of(logic.PacketMapChanges)]u8
 
   for {
     _, rerr := net.recv_tcp(sock, buf[:size_of(buf)])
@@ -117,7 +117,7 @@ udp_send_playerinfo :: proc(sock: net.UDP_Socket, buf: []u8) {
 }
 
 udp_receive_thread :: proc(sock: net.UDP_Socket) {
-  buf: [2048]u8
+  buf: [size_of(logic.Gamestate)]u8
   for {
     _, _, err := net.recv_udp(sock, buf[:])
     if err != nil {
