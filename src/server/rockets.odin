@@ -57,6 +57,7 @@ rocket_check_meatshot :: proc(rocket: logic.Rocket, buf: []u8) -> bool {
 		if sync.mutex_guard(&tsMutex) {
 			for _, pl in players {
 				net.send_tcp(pl.tcpSock, buf[:size_of(change)])
+				time.sleep(time.Microsecond * 250)
 			}
 		}
 	}
@@ -69,7 +70,7 @@ rocket_map_collision :: proc(rocket: logic.Rocket, buf: []u8) -> bool {
 	isCollision := logic.map_detect_collision(m, rocket.pos-(rocketBox/2.0), rocketBox)
 	sync.mutex_unlock(&mMutex)
 
-	if !isCollision{
+	if !isCollision {
 		return false
 	}
 
@@ -97,11 +98,14 @@ rocket_map_collision :: proc(rocket: logic.Rocket, buf: []u8) -> bool {
 	if sync.mutex_guard(&psMutex) {
 		if sync.mutex_guard(&tsMutex) {
 			for _, player in players {
+				time.sleep(time.Microsecond * 250)
 				mem.copy(mem.raw_data(buf[:]), &change, size_of(change))
 				net.send_tcp(player.tcpSock, buf[:size_of(change)])
 
 				if logic.intersect_circle_rect(rocket.pos, logic.ROCKET_EXP_RAD, 
 					player.playerInfo.pos, player.playerInfo.pos + logic.PLAYER_RECT) {
+
+					time.sleep(time.Microsecond * 250)
 					mem.copy(mem.raw_data(buf[:]), &explosion, size_of(explosion))
 					net.send_tcp(player.tcpSock, buf[:size_of(explosion)])
 				}
@@ -120,8 +124,8 @@ rockets_udpate_thread :: proc() {
 		defer time.sleep(time.Millisecond * 6)
 
 		curr := time.tick_now()
-		delta_dur := time.tick_diff(prev, curr)
-		dt := f32(time.duration_seconds(delta_dur))
+		deltaDur := time.tick_diff(prev, curr)
+		dt := f32(time.duration_seconds(deltaDur))
 		prev = curr
 
 		for i := 0; i < len(rockets); i+=1 {

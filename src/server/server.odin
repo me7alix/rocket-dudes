@@ -69,7 +69,6 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 				pl := &players[change.id]
 				pl.playerInfo = change
 				pl.udpEndp = peer
-				pl.lastSeen = time.now()
 			}
 		}
 	}
@@ -116,6 +115,7 @@ tcp_client_thread :: proc(clientSock: net.TCP_Socket, clientEndp: net.Endpoint) 
 				if sync.mutex_guard(&tsMutex) {
 					for _, player in players {
 						net.send_tcp(player.tcpSock, buf[:size_of(change)])
+						time.sleep(time.Microsecond * 250)
 					}
 				}
 			}
@@ -125,7 +125,6 @@ tcp_client_thread :: proc(clientSock: net.TCP_Socket, clientEndp: net.Endpoint) 
 				players[idCnt] = logic.Player{
 					playerInfo = logic.PlayerInfo{id = idCnt},
 					tcpSock = clientSock,
-					lastSeen = time.now(),
 				}
 			}
 
@@ -173,6 +172,7 @@ tcp_thread :: proc(tcp_listener: net.TCP_Socket) {
 			fmt.printf("TCP accept error: %v\n", acceptErr)
 			continue
 		}
+		net.set_option(clientSock, net.Socket_Option.TCP_Nodelay, true)
 
 		thread.create_and_start_with_poly_data2(clientSock, clientEndp, tcp_client_thread)
 	}

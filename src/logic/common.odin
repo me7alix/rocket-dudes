@@ -12,7 +12,7 @@ PLAYER_SPEED :: 230
 
 ROCKET_RAD :: 10
 ROCKET_EXP_RAD :: 50
-ROCKET_EXP_FORCE :: 27
+ROCKET_EXP_FORCE :: 17
 ROCKET_EXP_DAMAGE :: 55
 ROCKET_SPEED :: 700
 
@@ -59,7 +59,6 @@ Camera :: struct {
 Player :: struct {
 	tcpSock: net.TCP_Socket,
 	udpEndp: net.Endpoint,
-	lastSeen: time.Time,
 	playerInfo: PlayerInfo,
 }
 

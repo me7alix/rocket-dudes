@@ -30,7 +30,7 @@ screenWidth := 800
 screenHeight := 600
 camera := logic.Camera{{0, 0}, 1.0}
 screenPlayerPos := rl.Vector2{
-f32(screenWidth), f32(screenHeight)
+	f32(screenWidth), f32(screenHeight)
 } / 2.0 - logic.PLAYER_RECT/2.0
 strBuf := strings.Builder{}
 
@@ -89,7 +89,7 @@ tcp_receive_thread :: proc(sock: net.TCP_Socket) {
 			expPacket := logic.PacketExplosion{}
 			mem.copy(&expPacket, mem.raw_data(buf[:]), size_of(expPacket))
 
-			expVec := plinf.pos - expPacket.pos
+			expVec := (plinf.pos + logic.PLAYER_RECT/2.0) - expPacket.pos
 			maxRad := expPacket.rad + logic.PLAYER_RECT.y/2.0
 			normForce := math.clamp(1 - rl.Vector2Length(expVec) / maxRad, 0, 1)
 
