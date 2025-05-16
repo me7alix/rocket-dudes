@@ -30,8 +30,9 @@ screenWidth := 800
 screenHeight := 600
 camera := logic.Camera{{0, 0}, 1.0}
 screenPlayerPos := rl.Vector2{
-	f32(screenWidth), f32(screenHeight)
+f32(screenWidth), f32(screenHeight)
 } / 2.0 - logic.PLAYER_RECT/2.0
+strBuf := strings.Builder{}
 
 
 respawn :: proc() {
@@ -111,7 +112,7 @@ udp_send_playerinfo :: proc(sock: net.UDP_Socket, buf: []u8) {
 	}
 	_, err := net.send_udp(sock, buf[:size_of(plinf)], serverEndp)
 	if err != nil {
-		fmt.println("udp send error:", err)
+		fmt.eprintf("udp send error: %v\n", err)
 		return
 	}
 }
@@ -164,6 +165,69 @@ request_player_id :: proc(tcpSock: net.TCP_Socket, buf: []u8) {
 	net.send_tcp(tcpSock, buf[:size_of(logic.PacketPlayerID)])
 }
 
+update_physic :: proc() {
+	onGround := false
+	if sync.mutex_guard(&piMutex) {
+		for i := 0; i < physicIters; i+=1 {
+			plinf.vel.y += 20 * rl.GetFrameTime() / f32(physicIters)
+			plinf.pos += plinf.vel / f32(physicIters)
+			if rl.IsKeyDown(rl.KeyboardKey.A) {
+				plinf.pos.x -= rl.GetFrameTime() * logic.PLAYER_SPEED / f32(physicIters)
+			}
+			if rl.IsKeyDown(rl.KeyboardKey.D) {
+				plinf.pos.x += rl.GetFrameTime() * logic.PLAYER_SPEED / f32(physicIters)
+			}
+			logic.map_solve_collision(m, &plinf, &onGround)
+		}
+		if onGround {
+			plinf.vel.x = 0
+		}
+		if plinf.pos.y > logic.MAP_POS.y + logic.VOX_SIZE + 200 {
+			respawn()
+		}
+		if rl.IsKeyDown(rl.KeyboardKey.SPACE) && onGround {
+			plinf.vel.y += -10
+		}
+		camera.pos = plinf.pos-screenPlayerPos
+	}
+}
+
+draw_all :: proc(myID: logic.ID) {
+	rl.BeginDrawing()
+	rl.ClearBackground(rl.BLUE)
+
+	if sync.mutex_guard(&gsMutex) {
+		for i := 0; i < int(gamestate.playersCount); i+=1 {
+			if gamestate.players[i].id != myID {
+				plPos := gamestate.players[i].pos-camera.pos
+				rl.DrawRectangleV(plPos, logic.PLAYER_RECT, rl.YELLOW)
+				strings.builder_reset(&strBuf)
+				fmt.sbprint(&strBuf, i32(gamestate.players[i].health))
+				cstr, _ := strings.to_cstring(&strBuf)
+				rl.DrawText(cstr, i32(plPos.x), i32(plPos.y), 16, rl.BLACK)
+			}
+		}
+
+		for i := 0; i < int(gamestate.rocketsCount); i+=1 {
+			rl.DrawCircleV(gamestate.rockets[i].pos-camera.pos, logic.ROCKET_RAD, rl.BLACK)
+		}
+	}
+
+	if sync.mutex_guard(&mMutex) {
+		logic.map_draw(m, camera.pos)
+	}
+
+	strings.builder_reset(&strBuf)
+	if sync.mutex_guard(&piMutex) {
+		fmt.sbprint(&strBuf, i32(plinf.health))
+	}
+	cstr, _ := strings.to_cstring(&strBuf)
+	rl.DrawRectangleV(screenPlayerPos, logic.PLAYER_RECT, rl.RED)
+	rl.DrawText(cstr, i32(screenPlayerPos.x), i32(screenPlayerPos.y), 16, rl.BLACK)
+
+	rl.EndDrawing()
+}
+
 main :: proc() {
 	if len(os.args) < 2 {
 		fmt.println("Usage: [ADDRESS]:[PORT]")
@@ -184,9 +248,6 @@ main :: proc() {
 	buf: [2048]u8 
 	plinf.pos = {300, 0}
 	plinf.health = 100
-	onGround := false
-	speed := f32(220)
-	strBuf := strings.Builder{}
 	shootingTimer: f32 = 0
 
 	udpSock, _ := net.make_unbound_udp_socket(.IP4); 
@@ -202,6 +263,7 @@ main :: proc() {
 
 	rl.SetTraceLogLevel(rl.TraceLogLevel.NONE)
 	rl.InitWindow(i32(screenWidth), i32(screenHeight), "Rocket dudes")
+	defer rl.CloseWindow()
 	rl.SetTargetFPS(60)
 
 	for !rl.WindowShouldClose() {
@@ -220,64 +282,9 @@ main :: proc() {
 			tcp_send_launch_rocket(tcpSock, buf[:], myID)
 		}
 
-		if sync.mutex_guard(&piMutex) {
-			for i := 0; i < physicIters; i+=1 {
-				plinf.vel.y += 20 * rl.GetFrameTime() / f32(physicIters)
-				plinf.pos += plinf.vel / f32(physicIters)
-				if rl.IsKeyDown(rl.KeyboardKey.A) {
-					plinf.pos.x -= rl.GetFrameTime() * speed / f32(physicIters)
-				}
-				if rl.IsKeyDown(rl.KeyboardKey.D) {
-					plinf.pos.x += rl.GetFrameTime() * speed / f32(physicIters)
-				}
-				logic.map_solve_collision(m, &plinf, &onGround)
-			}
-			if onGround {
-				plinf.vel.x = 0
-			}
-			if plinf.pos.y > logic.MAP_POS.y + logic.VOX_SIZE + 200 {
-				respawn()
-			}
-			if rl.IsKeyDown(rl.KeyboardKey.SPACE) && onGround {
-				plinf.vel.y += -10
-			}
-			camera.pos = plinf.pos-screenPlayerPos
-		}
-
+		update_physic()
 		udp_send_playerinfo(udpSock, buf[:size_of(buf)])
 
-		rl.BeginDrawing()
-		rl.ClearBackground(rl.BLUE)
-
-		if sync.mutex_guard(&gsMutex) {
-			for i := 0; i < int(gamestate.playersCount); i+=1 {
-				if gamestate.players[i].id != myID {
-					plPos := gamestate.players[i].pos-camera.pos
-					rl.DrawRectangleV(plPos, logic.PLAYER_RECT, rl.YELLOW)
-					strings.builder_reset(&strBuf)
-					fmt.sbprint(&strBuf, i32(gamestate.players[i].health))
-					cstr, _ := strings.to_cstring(&strBuf)
-					rl.DrawText(cstr, i32(plPos.x), i32(plPos.y), 16, rl.BLACK)
-				}
-			}
-
-			for i := 0; i < int(gamestate.rocketsCount); i+=1 {
-				rl.DrawCircleV(gamestate.rockets[i].pos-camera.pos, logic.ROCKET_RAD, rl.BLACK)
-			}
-		}
-
-		if sync.mutex_guard(&mMutex) {
-			logic.map_draw(m, camera.pos)
-		}
-
-		strings.builder_reset(&strBuf)
-		if sync.mutex_guard(&piMutex) {
-			fmt.sbprint(&strBuf, i32(plinf.health))
-		}
-		cstr, _ := strings.to_cstring(&strBuf)
-		rl.DrawRectangleV(screenPlayerPos, logic.PLAYER_RECT, rl.RED)
-		rl.DrawText(cstr, i32(screenPlayerPos.x), i32(screenPlayerPos.y), 16, rl.BLACK)
-
-		rl.EndDrawing()
+		draw_all(myID)
 	}
 }
