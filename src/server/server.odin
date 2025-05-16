@@ -24,202 +24,202 @@ players: map[logic.ID]logic.Player
 psMutex: sync.Mutex
 
 udp_send_thread :: proc(sock: net.UDP_Socket) {
-  buf: [size_of(logic.Gamestate)]u8
-  emptyEndp := net.Endpoint{}
+	buf: [size_of(logic.Gamestate)]u8
+	emptyEndp := net.Endpoint{}
 
-  for {
-    if sync.mutex_guard(&rsMutex) {
-      logic.gamestate_set_rockets(&gamestate, rockets)
-    }
-    if sync.mutex_guard(&psMutex) {
-      logic.gamestate_set_players_info(&gamestate, players)
-      mem.copy(mem.raw_data(buf[:]), &gamestate, size_of(gamestate))
+	for {
+		if sync.mutex_guard(&rsMutex) {
+			logic.gamestate_set_rockets(&gamestate, rockets)
+		}
+		if sync.mutex_guard(&psMutex) {
+			logic.gamestate_set_players_info(&gamestate, players)
+			mem.copy(mem.raw_data(buf[:]), &gamestate, size_of(gamestate))
 
-      for id, player in players {
-        if player.udpEndp == emptyEndp {
-          continue
-        }
-        _, serr := net.send_udp(sock, buf[:size_of(gamestate)], player.udpEndp)
-        if serr != nil {
-          fmt.printf("udp send error: %v\n", serr)
-        }
-      }
-    }
+			for id, player in players {
+				if player.udpEndp == emptyEndp {
+					continue
+				}
+				_, serr := net.send_udp(sock, buf[:size_of(gamestate)], player.udpEndp)
+				if serr != nil {
+					fmt.printf("udp send error: %v\n", serr)
+				}
+			}
+		}
 
-    time.sleep(time.Millisecond * 12)
-  }
+		time.sleep(time.Millisecond * 12)
+	}
 }
 
 udp_receive_thread :: proc(sock: net.UDP_Socket) {
-  buf: [size_of(logic.PlayerInfo)]u8
+	buf: [size_of(logic.PlayerInfo)]u8
 
-  for {
-    _, peer, rerr := net.recv_udp(sock, buf[:len(buf)])
-    if rerr != nil {
-      fmt.printf("receive playerinfo error: %v\n", rerr)
-      continue
-    }
+	for {
+		_, peer, rerr := net.recv_udp(sock, buf[:len(buf)])
+		if rerr != nil {
+			fmt.printf("receive playerinfo error: %v\n", rerr)
+			continue
+		}
 
-    change := logic.PlayerInfo{}
-    mem.copy(&change, mem.raw_data(buf[:]), size_of(change))
+		change := logic.PlayerInfo{}
+		mem.copy(&change, mem.raw_data(buf[:]), size_of(change))
 
-    if sync.mutex_guard(&psMutex) {
-      ok := change.id in players
-      if ok {
-        pl := &players[change.id]
-        pl.playerInfo = change
-        pl.udpEndp = peer
-        pl.lastSeen = time.now()
-      }
-    }
-  }
+		if sync.mutex_guard(&psMutex) {
+			ok := change.id in players
+			if ok {
+				pl := &players[change.id]
+				pl.playerInfo = change
+				pl.udpEndp = peer
+				pl.lastSeen = time.now()
+			}
+		}
+	}
 }
 
 tcp_client_thread :: proc(clientSock: net.TCP_Socket, clientEndp: net.Endpoint) {
-  buf: [size_of(logic.PacketMapChanges)]u8
-  playerID: logic.ID
-  defer net.close(clientSock)
+	buf: [size_of(logic.PacketMapChanges)]u8
+	playerID: logic.ID
+	defer net.close(clientSock)
 
-  for {
-    n, rerr := net.recv_tcp(clientSock, buf[:len(buf)])
-    if rerr != nil {
-      fmt.printf("tcp receive error: %v\n", rerr) 
-      return
-    }
+	for {
+		n, rerr := net.recv_tcp(clientSock, buf[:len(buf)])
+		if rerr != nil {
+			fmt.printf("tcp receive error: %v\n", rerr) 
+			return
+		}
 
-    if n <= 0 {
-      if sync.mutex_guard(&psMutex) {
-        delete_key(&players, playerID)
-      }
-      break
-    }
+		if n <= 0 {
+			if sync.mutex_guard(&psMutex) {
+				delete_key(&players, playerID)
+			}
+			break
+		}
 
-    type := logic.PacketType{}
-    mem.copy(&type, mem.raw_data(buf[:]), size_of(logic.PacketType))
+		type := logic.PacketType{}
+		mem.copy(&type, mem.raw_data(buf[:]), size_of(logic.PacketType))
 
-    #partial switch type {
-    case .MAP_CHANGE:
-      change := logic.PacketMapChange{}
-      change.type = .MAP_CHANGE
-      mem.copy(&change, mem.raw_data(buf[:]), size_of(change))
+		#partial switch type {
+		case .MAP_CHANGE:
+			change := logic.PacketMapChange{}
+			change.type = .MAP_CHANGE
+			mem.copy(&change, mem.raw_data(buf[:]), size_of(change))
 
-      if sync.mutex_guard(&mMutex) {
-        logic.map_accept_change(m, change.mapChange)
-      }
+			if sync.mutex_guard(&mMutex) {
+				logic.map_accept_change(m, change.mapChange)
+			}
 
-      if sync.mutex_guard(&mcMutex) {
-        mapChanges.changes[mapChanges.count] = change.mapChange
-        mapChanges.count += 1
-      }
+			if sync.mutex_guard(&mcMutex) {
+				mapChanges.changes[mapChanges.count] = change.mapChange
+				mapChanges.count += 1
+			}
 
-      if sync.mutex_guard(&psMutex) {
-        if sync.mutex_guard(&tsMutex) {
-          for _, player in players {
-            net.send_tcp(player.tcpSock, buf[:size_of(change)])
-          }
-        }
-      }
+			if sync.mutex_guard(&psMutex) {
+				if sync.mutex_guard(&tsMutex) {
+					for _, player in players {
+						net.send_tcp(player.tcpSock, buf[:size_of(change)])
+					}
+				}
+			}
 
-    case .PLAYER_ID:
-      if sync.mutex_guard(&psMutex) {
-        players[idCnt] = logic.Player{
-          playerInfo = logic.PlayerInfo{id = idCnt},
-          tcpSock = clientSock,
-          lastSeen = time.now(),
-        }
-      }
+		case .PLAYER_ID:
+			if sync.mutex_guard(&psMutex) {
+				players[idCnt] = logic.Player{
+					playerInfo = logic.PlayerInfo{id = idCnt},
+					tcpSock = clientSock,
+					lastSeen = time.now(),
+				}
+			}
 
-      packet := logic.PacketPlayerID {
-        type = .PLAYER_ID,
-        playerID = idCnt,
-      }
+			packet := logic.PacketPlayerID {
+				type = .PLAYER_ID,
+				playerID = idCnt,
+			}
 
-      playerID = idCnt
-      idCnt += 1
+			playerID = idCnt
+			idCnt += 1
 
-      mem.copy(mem.raw_data(buf[:]), &packet, size_of(packet))
-      if sync.mutex_guard(&tsMutex) {
-        net.send_tcp(clientSock, buf[:size_of(packet)])
-      }
-     
-      mapChangesPacket := logic.PacketMapChanges{}
-      
-      if sync.mutex_guard(&mcMutex) {
-        mapChangesPacket = {
-          type = .MAP_CHANGES,
-          mapChanges = mapChanges,
-        }
-      }
+			mem.copy(mem.raw_data(buf[:]), &packet, size_of(packet))
+			if sync.mutex_guard(&tsMutex) {
+				net.send_tcp(clientSock, buf[:size_of(packet)])
+			}
 
-      mem.copy(mem.raw_data(buf[:]), &mapChangesPacket, size_of(mapChangesPacket))
-      if sync.mutex_guard(&tsMutex) {
-        net.send_tcp(clientSock, buf[:size_of(mapChanges)])
-      }
+			mapChangesPacket := logic.PacketMapChanges{}
 
-    case .ROCKET_LAUNCH:
-      packet := logic.PacketLaunchRocket{}
-      mem.copy(&packet, mem.raw_data(buf[:]), size_of(packet))
-      if sync.mutex_guard(&rsMutex) {
-        append(&rockets, packet.rocket)
-      }
-    }
-  }
+			if sync.mutex_guard(&mcMutex) {
+				mapChangesPacket = {
+					type = .MAP_CHANGES,
+					mapChanges = mapChanges,
+				}
+			}
+
+			mem.copy(mem.raw_data(buf[:]), &mapChangesPacket, size_of(mapChangesPacket))
+			if sync.mutex_guard(&tsMutex) {
+				net.send_tcp(clientSock, buf[:size_of(mapChanges)])
+			}
+
+		case .ROCKET_LAUNCH:
+			packet := logic.PacketLaunchRocket{}
+			mem.copy(&packet, mem.raw_data(buf[:]), size_of(packet))
+			if sync.mutex_guard(&rsMutex) {
+				append(&rockets, packet.rocket)
+			}
+		}
+	}
 }
 
 tcp_thread :: proc(tcp_listener: net.TCP_Socket) {
-  for {
-    clientSock, clientEndp, acceptErr := net.accept_tcp(tcp_listener)
-    if acceptErr != net.Accept_Error.None {
-      fmt.printf("TCP accept error: %v\n", acceptErr)
-      continue
-    }
+	for {
+		clientSock, clientEndp, acceptErr := net.accept_tcp(tcp_listener)
+		if acceptErr != net.Accept_Error.None {
+			fmt.printf("TCP accept error: %v\n", acceptErr)
+			continue
+		}
 
-    thread.create_and_start_with_poly_data2(clientSock, clientEndp, tcp_client_thread)
-  }
+		thread.create_and_start_with_poly_data2(clientSock, clientEndp, tcp_client_thread)
+	}
 }
 
 main :: proc() {
-  serverEndp := net.Endpoint{net.IP4_Any, 0}
-  
-  if len(os.args) < 2 {
-    fmt.println("Usage: [PORT]")
-    return
-  } else {
-    val, ok := strconv.parse_int(os.args[1])
-    if !ok {
-      fmt.eprintln("invalid data")
-      return
-    } else {
-      serverEndp.port = val
-    }
-  }
+	serverEndp := net.Endpoint{net.IP4_Any, 0}
 
-  m = logic.map_alloc()
-  defer free(m)
+	if len(os.args) < 2 {
+		fmt.println("Usage: [PORT]")
+		return
+	} else {
+		val, ok := strconv.parse_int(os.args[1])
+		if !ok {
+			fmt.eprintln("invalid data")
+			return
+		} else {
+			serverEndp.port = val
+		}
+	}
 
-  players = make(map[logic.ID]logic.Player)
-  defer delete(players)
+	m = logic.map_alloc()
+	defer free(m)
 
-  udpSock, userr := net.make_bound_udp_socket(serverEndp.address, serverEndp.port);
-  if userr != nil {
-    fmt.println("Failed to bind UDP socket:", userr)
-    return
-  }
-  defer net.close(udpSock)
+	players = make(map[logic.ID]logic.Player)
+	defer delete(players)
 
-  tcpSock, tserr := net.listen_tcp(serverEndp)
-  if tserr != nil {
-    fmt.println("Failed to create TCP socket:", tserr)
-    return
-  }
-  defer net.close(tcpSock)
+	udpSock, userr := net.make_bound_udp_socket(serverEndp.address, serverEndp.port);
+	if userr != nil {
+		fmt.println("Failed to bind UDP socket:", userr)
+		return
+	}
+	defer net.close(udpSock)
 
-  thread.create_and_start_with_poly_data(tcpSock, tcp_thread)
-  thread.create_and_start_with_poly_data(udpSock, udp_receive_thread)
-  thread.create_and_start_with_poly_data(udpSock, udp_send_thread)
-  thread.create_and_start(rockets_udpate_thread)
+	tcpSock, tserr := net.listen_tcp(serverEndp)
+	if tserr != nil {
+		fmt.println("Failed to create TCP socket:", tserr)
+		return
+	}
+	defer net.close(tcpSock)
 
-  for {
-    time.sleep(time.Second)
-  }
+	thread.create_and_start_with_poly_data(tcpSock, tcp_thread)
+	thread.create_and_start_with_poly_data(udpSock, udp_receive_thread)
+	thread.create_and_start_with_poly_data(udpSock, udp_send_thread)
+	thread.create_and_start(rockets_udpate_thread)
+
+	for {
+		time.sleep(time.Second)
+	}
 }
