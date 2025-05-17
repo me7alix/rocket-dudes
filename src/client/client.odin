@@ -318,7 +318,7 @@ main :: proc() {
 	defer rl.CloseWindow()
 	rl.SetTargetFPS(60)
 
-	sprites = rl.LoadTexture("sprites.png")
+	sprites = rl.LoadTexture("resources/sprites.png")
 	defer rl.UnloadTexture(sprites)
 
 	animWalkR.texture = sprites
