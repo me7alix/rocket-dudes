@@ -255,7 +255,7 @@ draw_all :: proc(myID: logic.ID) {
 				strings.builder_reset(&strBuf)
 				fmt.sbprint(&strBuf, i32(gamestate.players[i].health))
 				cstr, _ := strings.to_cstring(&strBuf)
-				rl.DrawText(cstr, i32(plPos.x), i32(plPos.y), 16, rl.BLACK)
+				rl.DrawText(cstr, i32(plPos.x), i32(plPos.y), 16, rl.RED)
 			}
 		}
 
@@ -274,8 +274,8 @@ draw_all :: proc(myID: logic.ID) {
 	}
 	cstr, _ := strings.to_cstring(&strBuf)
 	//rl.DrawRectangleV(screenPlayerPos, logic.PLAYER_RECT, rl.RED)
-	//rl.DrawTextureRec(sprites, {f32(49*(i32(rl.GetTime()*9)%10)), 78, -47, 45}, screenPlayerPos+{-12, 5}, rl.WHITE)
 	player_anim(plinf, true)
+	rl.DrawText(cstr, i32(screenPlayerPos.x), i32(screenPlayerPos.y), 16, rl.RED)
 
 	rl.EndDrawing()
 }
