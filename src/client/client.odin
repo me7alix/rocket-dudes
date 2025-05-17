@@ -24,6 +24,7 @@ gsMutex: sync.Mutex
 plinf: logic.PlayerInfo
 piMutex: sync.Mutex
 serverEndp: net.Endpoint
+sprites: rl.Texture2D
 
 physicIters := 4
 screenWidth := 800
@@ -33,7 +34,6 @@ screenPlayerPos := rl.Vector2{
 	f32(screenWidth), f32(screenHeight)
 } / 2.0 - logic.PLAYER_RECT/2.0
 strBuf := strings.Builder{}
-
 
 respawn :: proc() {
 	plinf.pos = logic.MAP_POS + 
@@ -165,17 +165,23 @@ request_player_id :: proc(tcpSock: net.TCP_Socket, buf: []u8) {
 	net.send_tcp(tcpSock, buf[:size_of(logic.PacketPlayerID)])
 }
 
-update_physic :: proc() {
-	onGround := false
+update_physic ::proc() -> bool {
+	onGround := false	
+	plinf.moveDir = 0
+
 	if sync.mutex_guard(&piMutex) {
 		for i := 0; i < physicIters; i+=1 {
 			plinf.vel.y += 20 * rl.GetFrameTime() / f32(physicIters)
 			plinf.pos += plinf.vel / f32(physicIters)
 			if rl.IsKeyDown(rl.KeyboardKey.A) {
 				plinf.pos.x -= rl.GetFrameTime() * logic.PLAYER_SPEED / f32(physicIters)
+				plinf.moveDir = -1
+				plinf.lastMoveDir = -1
 			}
 			if rl.IsKeyDown(rl.KeyboardKey.D) {
 				plinf.pos.x += rl.GetFrameTime() * logic.PLAYER_SPEED / f32(physicIters)
+				plinf.moveDir = 1
+				plinf.lastMoveDir = 1
 			}
 			logic.map_solve_collision(m, &plinf, &onGround)
 		}
@@ -190,6 +196,49 @@ update_physic :: proc() {
 		}
 		camera.pos = plinf.pos-screenPlayerPos
 	}
+
+	return onGround
+}
+
+player_anim :: proc(pi: logic.PlayerInfo, isMe: bool) {
+	pos := pi.pos-camera.pos
+	if isMe {
+		pos = screenPlayerPos
+	}
+
+	if pi.onGround {
+		if pi.moveDir > 0 {
+			animWalkR.spriteID = i32(rl.GetTime() * 9)
+			anim_draw(&animWalkR, pos)
+		} else if pi.moveDir < 0 {
+			animWalkL.spriteID = i32(rl.GetTime() * 9)
+			anim_draw(&animWalkL, pos)
+		} else {
+			if pi.lastMoveDir > 0 {
+				anim_draw(&animIdleR, pos)
+			} else {
+				anim_draw(&animIdleL, pos)
+			}
+		}
+	} else {
+		spriteID := i32(0)
+		if math.abs(pi.vel.y) < 3 {
+			spriteID = 3
+		} else if math.abs(plinf.vel.y) < 8 {
+			spriteID = 2
+		} else if math.abs(plinf.vel.y) < 12 {
+			spriteID = 1
+		} else {
+			spriteID = 0
+		}
+		if pi.lastMoveDir > 0 {
+			animJumpR.spriteID = spriteID
+			anim_draw(&animJumpR, pos)
+		} else {
+			animJumpL.spriteID = spriteID
+			anim_draw(&animJumpL, pos)
+		}
+	}
 }
 
 draw_all :: proc(myID: logic.ID) {
@@ -200,7 +249,9 @@ draw_all :: proc(myID: logic.ID) {
 		for i := 0; i < int(gamestate.playersCount); i+=1 {
 			if gamestate.players[i].id != myID {
 				plPos := gamestate.players[i].pos-camera.pos
-				rl.DrawRectangleV(plPos, logic.PLAYER_RECT, rl.YELLOW)
+				//rl.DrawRectangleV(plPos, logic.PLAYER_RECT, rl.YELLOW)
+				player_anim(gamestate.players[i], false)
+
 				strings.builder_reset(&strBuf)
 				fmt.sbprint(&strBuf, i32(gamestate.players[i].health))
 				cstr, _ := strings.to_cstring(&strBuf)
@@ -222,8 +273,9 @@ draw_all :: proc(myID: logic.ID) {
 		fmt.sbprint(&strBuf, i32(plinf.health))
 	}
 	cstr, _ := strings.to_cstring(&strBuf)
-	rl.DrawRectangleV(screenPlayerPos, logic.PLAYER_RECT, rl.RED)
-	rl.DrawText(cstr, i32(screenPlayerPos.x), i32(screenPlayerPos.y), 16, rl.BLACK)
+	//rl.DrawRectangleV(screenPlayerPos, logic.PLAYER_RECT, rl.RED)
+	//rl.DrawTextureRec(sprites, {f32(49*(i32(rl.GetTime()*9)%10)), 78, -47, 45}, screenPlayerPos+{-12, 5}, rl.WHITE)
+	player_anim(plinf, true)
 
 	rl.EndDrawing()
 }
@@ -266,6 +318,16 @@ main :: proc() {
 	defer rl.CloseWindow()
 	rl.SetTargetFPS(60)
 
+	sprites = rl.LoadTexture("sprites.png")
+	defer rl.UnloadTexture(sprites)
+
+	animWalkR.texture = sprites
+	animWalkL.texture = sprites
+	animIdleR.texture = sprites	
+	animIdleL.texture = sprites
+	animJumpR.texture = sprites
+	animJumpL.texture = sprites
+
 	for !rl.WindowShouldClose() {
 		shootingTimer += rl.GetFrameTime()
 
@@ -282,7 +344,7 @@ main :: proc() {
 			tcp_send_launch_rocket(tcpSock, buf[:], myID)
 		}
 
-		update_physic()
+		plinf.onGround = update_physic()
 		udp_send_playerinfo(udpSock, buf[:size_of(buf)])
 
 		draw_all(myID)
