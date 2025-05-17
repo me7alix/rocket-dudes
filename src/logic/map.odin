@@ -29,7 +29,7 @@ MAX_MAP_CHANGES :: 4096
 
 MapChange :: struct {
 	pos: rl.Vector2,
-	rad: f32, 
+	rad: f32,
 }
 
 MapChanges :: struct {

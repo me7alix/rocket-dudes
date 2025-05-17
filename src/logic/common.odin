@@ -67,6 +67,9 @@ PlayerInfo :: struct {
 	health: f32,
 	pos: rl.Vector2,
 	vel: rl.Vector2,
+	moveDir: i8,
+	lastMoveDir: i8,
+	onGround: bool,
 }
 
 Rocket :: struct {
