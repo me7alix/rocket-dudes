@@ -134,7 +134,7 @@ expl_anim_add :: proc(pos: rl.Vector2) {
 expl_anim_update :: proc() {
 	if sync.mutex_guard(&eaMutex) {
 		for i := 0; i < len(explAnims); i+=1 {
-			explAnims[i].anim.spriteID = i32(explAnims[i].timer * 6)
+			explAnims[i].anim.spriteID = i32(explAnims[i].timer * 13)
 			if explAnims[i].anim.spriteID >= explAnims[i].anim.length {
 				unordered_remove(&explAnims, i)
 				i -= 1

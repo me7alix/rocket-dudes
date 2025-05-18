@@ -279,7 +279,7 @@ main :: proc() {
 	plinf.health = 100
 	shootingTimer: f32 = 0
 
-	udpSock, _ := net.make_unbound_udp_socket(.IP4); 
+	udpSock, _ := net.make_bound_udp_socket(serverEndp.address, serverEndp.port); 
 	defer net.close(udpSock)
 
 	tcpSock, _ := net.dial_tcp_from_endpoint(serverEndp) 
