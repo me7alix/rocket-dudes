@@ -127,6 +127,7 @@ udp_send_playerinfo :: proc(sock: net.UDP_Socket, buf: []u8) {
 
 udp_receive_thread :: proc(sock: net.UDP_Socket) {
 	buf: [size_of(logic.Gamestate)]u8
+
 	for {
 		_, _, err := net.recv_udp(sock, buf[:])
 		if err != nil {
@@ -279,11 +280,19 @@ main :: proc() {
 	plinf.health = 100
 	shootingTimer: f32 = 0
 
-	udpSock, _ := net.make_bound_udp_socket(serverEndp.address, serverEndp.port); 
+	udpSock, usErr := net.make_bound_udp_socket(serverEndp.address, serverEndp.port)
+	if usErr != nil {
+		fmt.eprintf("make_bound_udp_socket error: %v\n", usErr)
+		return
+	}
 	defer net.close(udpSock)
 
-	tcpSock, _ := net.dial_tcp_from_endpoint(serverEndp) 
-	defer net.close(tcpSock) 
+	tcpSock, tsErr := net.dial_tcp_from_endpoint(serverEndp)
+	if tsErr != nil {
+		fmt.eprintf("dial_tcp_from_endpoint error: %v\n", tsErr)
+		return
+	}
+	defer net.close(tcpSock)
 
 	thread.create_and_start_with_poly_data(udpSock, udp_receive_thread)
 	thread.create_and_start_with_poly_data(tcpSock, tcp_receive_thread)

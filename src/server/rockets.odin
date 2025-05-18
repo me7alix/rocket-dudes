@@ -120,8 +120,6 @@ rockets_udpate_thread :: proc() {
 	prev := time.tick_now()
 
 	for {
-		defer time.sleep(time.Millisecond * 6)
-
 		curr := time.tick_now()
 		deltaDur := time.tick_diff(prev, curr)
 		dt := f32(time.duration_seconds(deltaDur))
@@ -152,5 +150,7 @@ rockets_udpate_thread :: proc() {
 				i -= 1
 			}
 		}
+
+		time.sleep(time.Millisecond * 6)
 	}
 }
