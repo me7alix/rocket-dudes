@@ -31,15 +31,14 @@ rocket_check_meatshot :: proc(rocket: logic.Rocket, buf: []u8) -> bool {
 		pos = rocket.pos,
 		rad = logic.ROCKET_EXP_RAD,
 	}
-	mem.copy(mem.raw_data(buf[:]), &explosion, size_of(explosion))
 
 	if sync.mutex_guard(&psMutex) {
 		if sync.mutex_guard(&tsMutex) {
 			for _, player in players {
 				if logic.intersect_circle_rect(rocket.pos, logic.ROCKET_RAD, player.playerInfo.pos,
-					player.playerInfo.pos + logic.PLAYER_RECT) && rocket.id != player.playerInfo.id {    
-					net.send_tcp(player.tcpSock, buf[:size_of(explosion)])
+					player.playerInfo.pos + logic.PLAYER_RECT) && rocket.id != player.playerInfo.id {
 					isHit = true
+					break
 				}
 			}
 		}
@@ -53,11 +52,15 @@ rocket_check_meatshot :: proc(rocket: logic.Rocket, buf: []u8) -> bool {
 			mapChanges.changes[mapChanges.count] = change.mapChange
 			mapChanges.count += 1
 		}
-		mem.copy(mem.raw_data(buf[:]), &change, size_of(change))
 		if sync.mutex_guard(&tsMutex) {
 			for _, pl in players {
+				mem.copy(mem.raw_data(buf[:]), &change, size_of(change))
 				net.send_tcp(pl.tcpSock, buf[:size_of(change)])
 				time.sleep(time.Microsecond * 250)
+
+				mem.copy(mem.raw_data(buf[:]), &explosion, size_of(explosion))
+				net.send_tcp(pl.tcpSock, buf[:size_of(explosion)])
+				time.sleep(time.Microsecond*250)
 			}
 		}
 	}
@@ -98,17 +101,13 @@ rocket_map_collision :: proc(rocket: logic.Rocket, buf: []u8) -> bool {
 	if sync.mutex_guard(&psMutex) {
 		if sync.mutex_guard(&tsMutex) {
 			for _, player in players {
-				time.sleep(time.Microsecond * 250)
 				mem.copy(mem.raw_data(buf[:]), &change, size_of(change))
 				net.send_tcp(player.tcpSock, buf[:size_of(change)])
+				time.sleep(time.Microsecond * 250)
 
-				if logic.intersect_circle_rect(rocket.pos, logic.ROCKET_EXP_RAD, 
-					player.playerInfo.pos, player.playerInfo.pos + logic.PLAYER_RECT) {
-
-					time.sleep(time.Microsecond * 250)
-					mem.copy(mem.raw_data(buf[:]), &explosion, size_of(explosion))
-					net.send_tcp(player.tcpSock, buf[:size_of(explosion)])
-				}
+				mem.copy(mem.raw_data(buf[:]), &explosion, size_of(explosion))
+				net.send_tcp(player.tcpSock, buf[:size_of(explosion)])
+				time.sleep(time.Microsecond * 250)
 			}
 		}
 	}
