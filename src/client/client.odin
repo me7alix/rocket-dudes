@@ -11,6 +11,7 @@ import "core:sync"
 import "core:thread"
 import "core:math"
 import "core:math/rand"
+import "core:math/linalg"
 import "base:runtime"
 import rl "vendor:raylib"
 import "../logic/"
@@ -20,6 +21,7 @@ mMutex: sync.Mutex
 mapChanges: logic.MapChanges
 mcMutex: sync.Mutex
 gamestate: logic.Gamestate
+prevGamestate: logic.Gamestate
 gsMutex: sync.Mutex
 plinf: logic.PlayerInfo
 piMutex: sync.Mutex
@@ -89,19 +91,25 @@ tcp_receive_thread :: proc(sock: net.TCP_Socket) {
 			expPacket := logic.PacketExplosion{}
 			mem.copy(&expPacket, mem.raw_data(buf[:]), size_of(expPacket))
 
-			expVec := (plinf.pos + logic.PLAYER_RECT/2.0) - expPacket.pos
-			maxRad := expPacket.rad + logic.PLAYER_RECT.y/2.0
-			normForce := math.clamp(1 - rl.Vector2Length(expVec) / maxRad, 0, 1)
+			if logic.intersect_circle_rect(expPacket.pos, logic.ROCKET_EXP_RAD, 
+				plinf.pos, plinf.pos + logic.PLAYER_RECT) {
 
-			if sync.mutex_guard(&piMutex) {
-				plinf.vel += rl.Vector2Normalize(expVec) * normForce * logic.ROCKET_EXP_FORCE
-				if plinf.id != expPacket.id {
-					plinf.health -= normForce * logic.ROCKET_EXP_DAMAGE
-					if plinf.health <= 0 {
-						respawn()
+				expVec := (plinf.pos + logic.PLAYER_RECT/2.0) - expPacket.pos
+				maxRad := expPacket.rad + logic.PLAYER_RECT.y/2.0
+				normForce := math.clamp(1 - rl.Vector2Length(expVec) / maxRad, 0, 1)
+
+				if sync.mutex_guard(&piMutex) {
+					plinf.vel += rl.Vector2Normalize(expVec) * normForce * logic.ROCKET_EXP_FORCE
+					if plinf.id != expPacket.id {
+						plinf.health -= normForce * logic.ROCKET_EXP_DAMAGE
+						if plinf.health <= 0 {
+							respawn()
+						}
 					}
 				}
 			}
+
+			expl_anim_add(expPacket.pos)
 		}
 	}
 }
@@ -127,6 +135,7 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 		}
 
 		if sync.mutex_guard(&gsMutex) {
+			prevGamestate = gamestate
 			mem.copy(&gamestate, mem.raw_data(buf[:]), size_of(gamestate))
 		}
 	}
@@ -200,47 +209,6 @@ update_physic ::proc() -> bool {
 	return onGround
 }
 
-player_anim :: proc(pi: logic.PlayerInfo, isMe: bool) {
-	pos := pi.pos-camera.pos
-	if isMe {
-		pos = screenPlayerPos
-	}
-
-	if pi.onGround {
-		if pi.moveDir > 0 {
-			animWalkR.spriteID = i32(rl.GetTime() * 9)
-			anim_draw(&animWalkR, pos)
-		} else if pi.moveDir < 0 {
-			animWalkL.spriteID = i32(rl.GetTime() * 9)
-			anim_draw(&animWalkL, pos)
-		} else {
-			if pi.lastMoveDir > 0 {
-				anim_draw(&animIdleR, pos)
-			} else {
-				anim_draw(&animIdleL, pos)
-			}
-		}
-	} else {
-		spriteID := i32(0)
-		if math.abs(pi.vel.y) < 3 {
-			spriteID = 3
-		} else if math.abs(plinf.vel.y) < 8 {
-			spriteID = 2
-		} else if math.abs(plinf.vel.y) < 12 {
-			spriteID = 1
-		} else {
-			spriteID = 0
-		}
-		if pi.lastMoveDir > 0 {
-			animJumpR.spriteID = spriteID
-			anim_draw(&animJumpR, pos)
-		} else {
-			animJumpL.spriteID = spriteID
-			anim_draw(&animJumpL, pos)
-		}
-	}
-}
-
 draw_all :: proc(myID: logic.ID) {
 	rl.BeginDrawing()
 	rl.ClearBackground(rl.BLUE)
@@ -248,19 +216,23 @@ draw_all :: proc(myID: logic.ID) {
 	if sync.mutex_guard(&gsMutex) {
 		for i := 0; i < int(gamestate.playersCount); i+=1 {
 			if gamestate.players[i].id != myID {
-				plPos := gamestate.players[i].pos-camera.pos
+				plPos := linalg.lerp(prevGamestate.players[i].pos, gamestate.players[i].pos, rl.GetFrameTime())-camera.pos
 				//rl.DrawRectangleV(plPos, logic.PLAYER_RECT, rl.YELLOW)
-				player_anim(gamestate.players[i], false)
+				player_anim(gamestate.players[i], false, plPos)
 
 				strings.builder_reset(&strBuf)
 				fmt.sbprint(&strBuf, i32(gamestate.players[i].health))
 				cstr, _ := strings.to_cstring(&strBuf)
-				rl.DrawText(cstr, i32(plPos.x), i32(plPos.y), 16, rl.RED)
+				rl.DrawText(cstr, i32(plPos.x), i32(plPos.y)-14, 16, rl.RED)
 			}
 		}
 
 		for i := 0; i < int(gamestate.rocketsCount); i+=1 {
-			rl.DrawCircleV(gamestate.rockets[i].pos-camera.pos, logic.ROCKET_RAD, rl.BLACK)
+			rocketPos := gamestate.rockets[i].pos
+			if linalg.distance(prevGamestate.rockets[i].pos, gamestate.rockets[i].pos) < logic.ROCKET_RAD*2 {
+				rocketPos = linalg.lerp(prevGamestate.rockets[i].pos, gamestate.rockets[i].pos, rl.GetFrameTime())
+			}
+			rl.DrawCircleV(rocketPos-camera.pos, logic.ROCKET_RAD, rl.YELLOW)
 		}
 	}
 
@@ -274,8 +246,10 @@ draw_all :: proc(myID: logic.ID) {
 	}
 	cstr, _ := strings.to_cstring(&strBuf)
 	//rl.DrawRectangleV(screenPlayerPos, logic.PLAYER_RECT, rl.RED)
-	player_anim(plinf, true)
-	rl.DrawText(cstr, i32(screenPlayerPos.x), i32(screenPlayerPos.y), 16, rl.RED)
+	player_anim(plinf, true, {})
+	rl.DrawText(cstr, i32(screenPlayerPos.x), i32(screenPlayerPos.y)-14, 16, rl.RED)
+
+	expl_anim_update()
 
 	rl.EndDrawing()
 }
@@ -293,6 +267,9 @@ main :: proc() {
 			serverEndp = val
 		}
 	}
+
+	explAnims = make([dynamic]ExplosionAnim)
+	defer delete(explAnims)
 
 	m = logic.map_alloc()
 	defer free(m)
@@ -318,7 +295,7 @@ main :: proc() {
 	defer rl.CloseWindow()
 	rl.SetTargetFPS(60)
 
-	sprites = rl.LoadTexture("resources/sprites.png")
+	sprites = rl.LoadTexture("res/sprites.png")
 	defer rl.UnloadTexture(sprites)
 
 	animWalkR.texture = sprites
@@ -327,6 +304,7 @@ main :: proc() {
 	animIdleL.texture = sprites
 	animJumpR.texture = sprites
 	animJumpL.texture = sprites
+	animBombExpl.texture = sprites
 
 	for !rl.WindowShouldClose() {
 		shootingTimer += rl.GetFrameTime()
