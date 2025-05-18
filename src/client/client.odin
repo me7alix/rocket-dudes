@@ -280,7 +280,7 @@ main :: proc() {
 	plinf.health = 100
 	shootingTimer: f32 = 0
 
-	udpSock, usErr := net.make_bound_udp_socket(serverEndp.address, serverEndp.port)
+	udpSock, usErr := net.make_bound_udp_socket(net.IP4_Any, 56780)
 	if usErr != nil {
 		fmt.eprintf("make_bound_udp_socket error: %v\n", usErr)
 		return
