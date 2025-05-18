@@ -131,7 +131,7 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 	for {
 		_, _, err := net.recv_udp(sock, buf[:])
 		if err != nil {
-			fmt.println("udp receive error:", err)
+			fmt.eprintf("udp receive error: %v\n", err)
 			return
 		}
 
@@ -286,6 +286,7 @@ main :: proc() {
 		return
 	}
 	defer net.close(udpSock)
+	net.send_udp(udpSock, buf[:], serverEndp)
 
 	tcpSock, tsErr := net.dial_tcp_from_endpoint(serverEndp)
 	if tsErr != nil {
@@ -318,7 +319,7 @@ main :: proc() {
 	for !rl.WindowShouldClose() {
 		shootingTimer += rl.GetFrameTime()
 
-		sync.mutex_guard(&piMutex)
+		sync.mutex_lock(&piMutex)
 		myID := plinf.id
 		sync.mutex_unlock(&piMutex)
 

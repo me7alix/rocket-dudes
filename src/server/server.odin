@@ -51,7 +51,7 @@ udp_send_thread :: proc(sock: net.UDP_Socket) {
 }
 
 udp_receive_thread :: proc(sock: net.UDP_Socket) {
-	buf: [size_of(logic.PlayerInfo)]u8
+	buf: [512]u8
 
 	for {
 		_, peer, rerr := net.recv_udp(sock, buf[:len(buf)])
