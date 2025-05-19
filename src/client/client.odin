@@ -22,11 +22,13 @@ mapChanges: logic.MapChanges
 mcMutex: sync.Mutex
 gamestate: logic.Gamestate
 prevGamestate: logic.Gamestate
+gsDelta: f32
 gsMutex: sync.Mutex
 plinf: logic.PlayerInfo
 piMutex: sync.Mutex
 serverEndp: net.Endpoint
 sprites: rl.Texture2D
+groundTexture: rl.Texture2D
 
 physicIters := 4
 screenWidth := 800
@@ -39,7 +41,7 @@ strBuf := strings.Builder{}
 
 respawn :: proc() {
 	plinf.pos = logic.MAP_POS + 
-	{logic.VOX_SIZE*rand.float32(), -200}
+	{logic.MAP_SIZE*rand.float32(), -200}
 	plinf.health = 100
 	plinf.vel = {0, 0}
 } 
@@ -127,6 +129,7 @@ udp_send_playerinfo :: proc(sock: net.UDP_Socket, buf: []u8) {
 
 udp_receive_thread :: proc(sock: net.UDP_Socket) {
 	buf: [size_of(logic.Gamestate)]u8
+	prev := time.tick_now()
 
 	for {
 		_, _, err := net.recv_udp(sock, buf[:])
@@ -135,7 +138,12 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 			return
 		}
 
+		curr := time.tick_now()
+		deltaDur := time.tick_diff(prev, curr)
+		prev = curr
+
 		if sync.mutex_guard(&gsMutex) {
+			gsDelta := f32(time.duration_seconds(deltaDur))
 			prevGamestate = gamestate
 			mem.copy(&gamestate, mem.raw_data(buf[:]), size_of(gamestate))
 		}
@@ -198,7 +206,7 @@ update_physic ::proc() -> bool {
 		if onGround {
 			plinf.vel.x = 0
 		}
-		if plinf.pos.y > logic.MAP_POS.y + logic.VOX_SIZE + 200 {
+		if plinf.pos.y > logic.MAP_POS.y + logic.MAP_SIZE + 200 {
 			respawn()
 		}
 		if rl.IsKeyDown(rl.KeyboardKey.SPACE) && onGround {
@@ -210,6 +218,13 @@ update_physic ::proc() -> bool {
 	return onGround
 }
 
+draw_hp :: proc(pos: rl.Vector2, hp: f32) {
+	strings.builder_reset(&strBuf)
+	fmt.sbprint(&strBuf, i32(hp))
+	cstr, _ := strings.to_cstring(&strBuf)
+	rl.DrawText(cstr, i32(pos.x), i32(pos.y)-14, 16, rl.RED)
+}
+
 draw_all :: proc(myID: logic.ID) {
 	rl.BeginDrawing()
 	rl.ClearBackground(rl.BLUE)
@@ -217,38 +232,30 @@ draw_all :: proc(myID: logic.ID) {
 	if sync.mutex_guard(&gsMutex) {
 		for i := 0; i < int(gamestate.playersCount); i+=1 {
 			if gamestate.players[i].id != myID {
-				plPos := linalg.lerp(prevGamestate.players[i].pos, gamestate.players[i].pos, rl.GetFrameTime())-camera.pos
-				//rl.DrawRectangleV(plPos, logic.PLAYER_RECT, rl.YELLOW)
+				plPos := linalg.lerp(prevGamestate.players[i].pos, gamestate.players[i].pos, gsDelta)
+				plPos -= camera.pos
 				player_anim(gamestate.players[i], false, plPos)
-
-				strings.builder_reset(&strBuf)
-				fmt.sbprint(&strBuf, i32(gamestate.players[i].health))
-				cstr, _ := strings.to_cstring(&strBuf)
-				rl.DrawText(cstr, i32(plPos.x), i32(plPos.y)-14, 16, rl.RED)
+				draw_hp(plPos, gamestate.players[i].health)
 			}
 		}
 
 		for i := 0; i < int(gamestate.rocketsCount); i+=1 {
 			rocketPos := gamestate.rockets[i].pos
 			if linalg.distance(prevGamestate.rockets[i].pos, gamestate.rockets[i].pos) < logic.ROCKET_RAD*2 {
-				rocketPos = linalg.lerp(prevGamestate.rockets[i].pos, gamestate.rockets[i].pos, rl.GetFrameTime())
+				rocketPos = linalg.lerp(prevGamestate.rockets[i].pos, gamestate.rockets[i].pos, gsDelta)
 			}
 			rl.DrawCircleV(rocketPos-camera.pos, logic.ROCKET_RAD, rl.YELLOW)
 		}
 	}
 
 	if sync.mutex_guard(&mMutex) {
-		logic.map_draw(m, camera.pos)
+		logic.map_draw(m, camera.pos, groundTexture)
 	}
 
-	strings.builder_reset(&strBuf)
 	if sync.mutex_guard(&piMutex) {
-		fmt.sbprint(&strBuf, i32(plinf.health))
+		player_anim(plinf, true, {})
+		draw_hp(screenPlayerPos, plinf.health)
 	}
-	cstr, _ := strings.to_cstring(&strBuf)
-	//rl.DrawRectangleV(screenPlayerPos, logic.PLAYER_RECT, rl.RED)
-	player_anim(plinf, true, {})
-	rl.DrawText(cstr, i32(screenPlayerPos.x), i32(screenPlayerPos.y)-14, 16, rl.RED)
 
 	expl_anim_update()
 
@@ -280,7 +287,7 @@ main :: proc() {
 	plinf.health = 100
 	shootingTimer: f32 = 0
 
-	udpSock, usErr := net.make_bound_udp_socket(net.IP4_Any, 56780)
+	udpSock, usErr := net.make_bound_udp_socket(net.IP4_Any, 56781)
 	if usErr != nil {
 		fmt.eprintf("make_bound_udp_socket error: %v\n", usErr)
 		return
@@ -307,6 +314,9 @@ main :: proc() {
 
 	sprites = rl.LoadTexture("res/sprites.png")
 	defer rl.UnloadTexture(sprites)
+	groundTexture = rl.LoadTexture("res/ground.png")
+	defer rl.UnloadTexture(groundTexture)
+	rl.SetTextureWrap(groundTexture, rl.TextureWrap.REPEAT)
 
 	animWalkR.texture = sprites
 	animWalkL.texture = sprites

@@ -19,7 +19,7 @@ Animation :: struct {
 animWalkR := Animation{
 	txPos = {0, 78},
 	size = {-47, 45},
-	offset = {-3, 5},
+	offset = {-3, 6},
 	length = 10,
 	delta = 49,
 }
@@ -27,7 +27,7 @@ animWalkR := Animation{
 animWalkL := Animation{
 	txPos = {0, 78},
 	size = {47, 45},
-	offset = {-13, 5},
+	offset = {-13, 6},
 	length = 10,
 	delta = 49,
 }
@@ -35,14 +35,14 @@ animWalkL := Animation{
 animIdleR := Animation{
 	txPos = {5, 18},
 	size = {-47, 45},
-	offset = {-3, 8},
+	offset = {-3, 10},
 	length = 1,
 }
 
 animIdleL := Animation{
 	txPos = {5, 18},
 	size = {47, 45},
-	offset = {-14, 8},
+	offset = {-14, 10},
 	length = 1,
 }
 

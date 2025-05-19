@@ -11,9 +11,9 @@ import rl "vendor:raylib"
 rocketBox := rl.Vector2{logic.ROCKET_RAD, logic.ROCKET_RAD}*2
 
 rocket_check_outside :: proc(rocket: logic.Rocket) -> bool {
-	return rocket.pos.x > logic.MAP_POS.x + logic.VOX_SIZE + 1000 || 
+	return rocket.pos.x > logic.MAP_POS.x + logic.MAP_SIZE + 1000 || 
 	rocket.pos.x < logic.MAP_POS.x - 1000 ||
-	rocket.pos.y > logic.MAP_POS.y + logic.VOX_SIZE + 1000 || 
+	rocket.pos.y > logic.MAP_POS.y + logic.MAP_SIZE + 1000 || 
 	rocket.pos.y < logic.MAP_POS.y - 1200 
 }
 

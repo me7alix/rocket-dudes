@@ -2,6 +2,7 @@ package logic
 
 import rl "vendor:raylib"
 import "core:math"
+import "core:math/linalg"
 
 Voxel :: struct {
 	isIntact, isColored: bool,
@@ -15,9 +16,10 @@ voxelsPos := [4]rl.Vector2 {
 
 ROOT_VOX :: 0
 MAX_VOXELS :: 100000
-VOX_SIZE :: 3000
+MAP_SIZE :: 3000
 MAX_DEPTH :: 11
 MAP_POS :: rl.Vector2{100, 200}
+MAP_TEXTURE_TILING :: 13
 
 Map :: struct {
 	voxels: [MAX_VOXELS]Voxel,
@@ -25,7 +27,7 @@ Map :: struct {
 	ptr: u32,
 }
 
-MAX_MAP_CHANGES :: 4096
+MAX_MAP_CHANGES :: 2048
 
 MapChange :: struct {
 	pos: rl.Vector2,
@@ -79,7 +81,7 @@ map_remove_circle :: proc(m: ^Map,
 		vi: u32,
 		depth: u32
 	) {
-		size := VOX_SIZE / math.pow_f32(2, f32(depth))
+		size := MAP_SIZE / math.pow_f32(2, f32(depth))
 		if intersect_circle_rect(spos, srad, vpos, vpos+size) {
 			if depth == MAX_DEPTH {
 				m.voxels[vi].isColored = false
@@ -129,7 +131,7 @@ map_add_circle :: proc(
 		m: ^Map, spos: rl.Vector2, srad: f32, 
 		vpos: rl.Vector2, vi: u32, depth: u32
 	) {
-		size := VOX_SIZE / math.pow_f32(2, f32(depth))
+		size := MAP_SIZE / math.pow_f32(2, f32(depth))
 		if intersect_circle_rect(spos, srad, vpos, vpos+size) {
 			if depth == MAX_DEPTH {
 				m.voxels[vi].isColored = true
@@ -167,25 +169,31 @@ map_add_circle :: proc(
 	add_circle_req(m, spos, srad, MAP_POS, ROOT_VOX, 0)
 }
 
-map_draw :: proc(m: ^Map, plpos: rl.Vector2) {
+map_draw :: proc(m: ^Map, plpos: rl.Vector2, texture: rl.Texture2D) {
 	draw_req :: proc(
-		m: ^Map, plpos: rl.Vector2, ind: u32,
+		m: ^Map, plpos: rl.Vector2, texture: rl.Texture, ind: u32,
 		pos: rl.Vector2, depth: u32
 	) {
-		size := VOX_SIZE / math.pow_f32(2, f32(depth))
+		size := MAP_SIZE / math.pow_f32(2, f32(depth))
 		if m.voxels[ind].isIntact && m.voxels[ind].isColored {
-			rl.DrawRectangleV(pos - plpos, {size, size}, rl.GREEN)
+			textureSize := rl.Vector2{f32(texture.width), f32(texture.height)}
+			rectPos := linalg.fract((pos-MAP_POS)/MAP_SIZE * MAP_TEXTURE_TILING) * textureSize
+			rectSize := textureSize * MAP_TEXTURE_TILING * (size / MAP_SIZE)
+			sourceRect := rl.Rectangle{rectPos.x, rectPos.y, rectSize.x, rectSize.y}
+			distRect := rl.Rectangle{(pos - plpos).x, (pos - plpos).y, size, size}
+			rl.DrawTexturePro(texture, sourceRect, distRect, {}, 0, rl.WHITE)
 			//rl.DrawRectangleLines(i32((pos - plpos).x), i32((pos - plpos).y), i32(size), i32(size), rl.DARKGREEN)
+			//rl.DrawRectangleV(pos - plpos, {size, size}, rl.GREEN)
 		} 
 		if !m.voxels[ind].isIntact {
 			for i := 0; i < 4; i+=1 {
-				draw_req(m, plpos, m.voxels[ind].children[i], 
+				draw_req(m, plpos, texture, m.voxels[ind].children[i], 
 					pos + voxelsPos[i] * (size / 2.0), depth+1)
 			}
 		}
 	}
 
-	draw_req(m, plpos, ROOT_VOX, MAP_POS, 0)
+	draw_req(m, plpos, texture, ROOT_VOX, MAP_POS, 0)
 }
 
 map_solve_collision :: proc(m: ^Map, plinf: ^PlayerInfo, onGround: ^bool) {
@@ -194,7 +202,7 @@ map_solve_collision :: proc(m: ^Map, plinf: ^PlayerInfo, onGround: ^bool) {
 		m: ^Map, plinf: ^PlayerInfo, onGround: ^bool,
 		vi: u32, vpos: rl.Vector2, depth: u32
 	) {
-		size := VOX_SIZE / math.pow_f32(2, f32(depth))
+		size := MAP_SIZE / math.pow_f32(2, f32(depth))
 
 		if !(plinf.pos.x < vpos.x + size && plinf.pos.x + PLAYER_RECT.x > vpos.x &&
 		plinf.pos.y < vpos.y + size && plinf.pos.y + PLAYER_RECT.y > vpos.y) { return }
@@ -247,7 +255,7 @@ map_detect_collision :: proc(
 		depth: u32,
 		retVal: ^bool
 	) {
-		size := VOX_SIZE / math.pow_f32(2, f32(depth))
+		size := MAP_SIZE / math.pow_f32(2, f32(depth))
 
 		if !(pos.x < vpos.x + size && pos.x + rect.x > vpos.x &&
 		pos.y < vpos.y + size && pos.y + rect.y > vpos.y) { return }

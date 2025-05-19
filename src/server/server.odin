@@ -51,10 +51,10 @@ udp_send_thread :: proc(sock: net.UDP_Socket) {
 }
 
 udp_receive_thread :: proc(sock: net.UDP_Socket) {
-	buf: [512]u8
+	buf: [1024]u8
 
 	for {
-		_, peer, rerr := net.recv_udp(sock, buf[:len(buf)])
+		_, peer, rerr := net.recv_udp(sock, buf[:])
 		if rerr != nil {
 			fmt.printf("receive playerinfo error: %v\n", rerr)
 			continue
