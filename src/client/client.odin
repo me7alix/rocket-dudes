@@ -31,8 +31,8 @@ sprites: rl.Texture2D
 groundTexture: rl.Texture2D
 
 physicIters := 4
-screenWidth := 800
-screenHeight := 600
+screenWidth := 1280
+screenHeight := 920
 camera := logic.Camera{{0, 0}, 1.0}
 screenPlayerPos := rl.Vector2{
 	f32(screenWidth), f32(screenHeight)
@@ -127,9 +127,11 @@ udp_send_playerinfo :: proc(sock: net.UDP_Socket, buf: []u8) {
 	}
 }
 
+
+prev: time.Tick
 udp_receive_thread :: proc(sock: net.UDP_Socket) {
 	buf: [size_of(logic.Gamestate)]u8
-	prev := time.tick_now()
+	prev = time.tick_now()
 
 	for {
 		_, _, err := net.recv_udp(sock, buf[:])
@@ -143,7 +145,7 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 		prev = curr
 
 		if sync.mutex_guard(&gsMutex) {
-			gsDelta := f32(time.duration_seconds(deltaDur))
+			gsDelta = f32(time.duration_seconds(deltaDur))
 			prevGamestate = gamestate
 			mem.copy(&gamestate, mem.raw_data(buf[:]), size_of(gamestate))
 		}
@@ -190,7 +192,7 @@ update_physic ::proc() -> bool {
 	if sync.mutex_guard(&piMutex) {
 		for i := 0; i < physicIters; i+=1 {
 			plinf.vel.y += 20 * rl.GetFrameTime() / f32(physicIters)
-			plinf.pos += plinf.vel / f32(physicIters)
+			plinf.pos += plinf.vel / f32(physicIters) * rl.GetFrameTime() / 0.016
 			if rl.IsKeyDown(rl.KeyboardKey.A) {
 				plinf.pos.x -= rl.GetFrameTime() * logic.PLAYER_SPEED / f32(physicIters)
 				plinf.moveDir = -1
@@ -228,11 +230,12 @@ draw_hp :: proc(pos: rl.Vector2, hp: f32) {
 draw_all :: proc(myID: logic.ID) {
 	rl.BeginDrawing()
 	rl.ClearBackground(rl.BLUE)
+	dt := f32(time.duration_seconds(time.tick_diff(prev, time.tick_now())))/gsDelta
 
 	if sync.mutex_guard(&gsMutex) {
 		for i := 0; i < int(gamestate.playersCount); i+=1 {
 			if gamestate.players[i].id != myID {
-				plPos := linalg.lerp(prevGamestate.players[i].pos, gamestate.players[i].pos, gsDelta)
+				plPos := linalg.lerp(prevGamestate.players[i].pos, gamestate.players[i].pos, dt)
 				plPos -= camera.pos
 				player_anim(gamestate.players[i], false, plPos)
 				draw_hp(plPos, gamestate.players[i].health)
@@ -242,7 +245,7 @@ draw_all :: proc(myID: logic.ID) {
 		for i := 0; i < int(gamestate.rocketsCount); i+=1 {
 			rocketPos := gamestate.rockets[i].pos
 			if linalg.distance(prevGamestate.rockets[i].pos, gamestate.rockets[i].pos) < logic.ROCKET_RAD*2 {
-				rocketPos = linalg.lerp(prevGamestate.rockets[i].pos, gamestate.rockets[i].pos, gsDelta)
+				rocketPos = linalg.lerp(prevGamestate.rockets[i].pos, gamestate.rockets[i].pos, dt)
 			}
 			rl.DrawCircleV(rocketPos-camera.pos, logic.ROCKET_RAD, rl.YELLOW)
 		}
@@ -263,8 +266,11 @@ draw_all :: proc(myID: logic.ID) {
 }
 
 main :: proc() {
-	if len(os.args) < 2 {
-		fmt.println("Usage: [ADDRESS]:[PORT]")
+	if len(os.args) < 3 {
+		fmt.println("Usage: [ADDRESS]:[PORT] [HIGH_REF_RATE]")
+		fmt.println("  [ADDRESS]:[PORT]    - server address and port to listen on")
+		fmt.println("  [HIGH_REF_RATE]     - set to 1 for 144fps, 0 for 60fps")
+		fmt.println("                        (default is 0)")
 		return
 	} else {
 		val, ok := net.parse_endpoint(os.args[1])
@@ -275,6 +281,8 @@ main :: proc() {
 			serverEndp = val
 		}
 	}
+
+	highRefRate := strconv.atoi(os.args[2]) == 1
 
 	explAnims = make([dynamic]ExplosionAnim)
 	defer delete(explAnims)
@@ -287,7 +295,7 @@ main :: proc() {
 	plinf.health = 100
 	shootingTimer: f32 = 0
 
-	udpSock, usErr := net.make_bound_udp_socket(net.IP4_Any, 56781)
+	udpSock, usErr := net.make_unbound_udp_socket(.IP4)
 	if usErr != nil {
 		fmt.eprintf("make_bound_udp_socket error: %v\n", usErr)
 		return
@@ -310,7 +318,7 @@ main :: proc() {
 	rl.SetTraceLogLevel(rl.TraceLogLevel.NONE)
 	rl.InitWindow(i32(screenWidth), i32(screenHeight), "Rocket dudes")
 	defer rl.CloseWindow()
-	rl.SetTargetFPS(60)
+	rl.SetTargetFPS(highRefRate ? 144 : 60)
 
 	sprites = rl.LoadTexture("res/sprites.png")
 	defer rl.UnloadTexture(sprites)
