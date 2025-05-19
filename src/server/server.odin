@@ -141,6 +141,7 @@ tcp_client_thread :: proc(clientSock: net.TCP_Socket, clientEndp: net.Endpoint) 
 				net.send_tcp(clientSock, buf[:size_of(packet)])
 			}
 
+			time.sleep(time.Millisecond * 10)
 			mapChangesPacket := logic.PacketMapChanges{}
 
 			if sync.mutex_guard(&mcMutex) {
