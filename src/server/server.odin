@@ -173,7 +173,9 @@ tcp_thread :: proc(tcp_listener: net.TCP_Socket) {
 			fmt.printf("TCP accept error: %v\n", acceptErr)
 			continue
 		}
+
 		net.set_option(clientSock, net.Socket_Option.TCP_Nodelay, true)
+		net.set_blocking(clientSock, true)
 
 		thread.create_and_start_with_poly_data2(clientSock, clientEndp, tcp_client_thread)
 	}

@@ -52,15 +52,19 @@ rocket_check_meatshot :: proc(rocket: logic.Rocket, buf: []u8) -> bool {
 			mapChanges.changes[mapChanges.count] = change.mapChange
 			mapChanges.count += 1
 		}
-		if sync.mutex_guard(&tsMutex) {
-			for _, pl in players {
+		if sync.mutex_guard(&psMutex) {
+			if sync.mutex_guard(&tsMutex) {
 				mem.copy(mem.raw_data(buf[:]), &change, size_of(change))
-				net.send_tcp(pl.tcpSock, buf[:size_of(change)])
-				time.sleep(time.Microsecond * 250)
+				for _, player in players {
+					net.send_tcp(player.tcpSock, buf[:size_of(change)])
+					time.sleep(time.Microsecond * 1)
+				}
 
+				time.sleep(time.Microsecond * 1500)
 				mem.copy(mem.raw_data(buf[:]), &explosion, size_of(explosion))
-				net.send_tcp(pl.tcpSock, buf[:size_of(explosion)])
-				time.sleep(time.Microsecond*250)
+				for _, player in players {
+					net.send_tcp(player.tcpSock, buf[:size_of(explosion)])
+				}
 			}
 		}
 	}
@@ -100,14 +104,16 @@ rocket_map_collision :: proc(rocket: logic.Rocket, buf: []u8) -> bool {
 
 	if sync.mutex_guard(&psMutex) {
 		if sync.mutex_guard(&tsMutex) {
+			mem.copy(mem.raw_data(buf[:]), &change, size_of(change))
 			for _, player in players {
-				mem.copy(mem.raw_data(buf[:]), &change, size_of(change))
 				net.send_tcp(player.tcpSock, buf[:size_of(change)])
-				time.sleep(time.Microsecond * 250)
+				time.sleep(time.Microsecond * 1)
+			}
 
-				mem.copy(mem.raw_data(buf[:]), &explosion, size_of(explosion))
+			time.sleep(time.Microsecond * 1500)
+			mem.copy(mem.raw_data(buf[:]), &explosion, size_of(explosion))
+			for _, player in players {
 				net.send_tcp(player.tcpSock, buf[:size_of(explosion)])
-				time.sleep(time.Microsecond * 250)
 			}
 		}
 	}
