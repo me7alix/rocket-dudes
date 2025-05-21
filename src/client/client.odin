@@ -50,7 +50,7 @@ tcp_receive_thread :: proc(sock: net.TCP_Socket) {
 	buf: [size_of(logic.PacketMapChanges)]u8
 
 	for {
-		_, rerr := net.recv_tcp(sock, buf[:size_of(buf)])
+		_, rerr := net.recv_tcp(sock, buf[:])
 		if rerr != nil {
 			fmt.eprintf("tcp receiving error: %v\n", rerr) 
 			return
@@ -229,7 +229,7 @@ draw_hp :: proc(pos: rl.Vector2, hp: f32) {
 
 draw_all :: proc(myID: logic.ID) {
 	rl.BeginDrawing()
-	rl.ClearBackground(rl.BLUE)
+	rl.ClearBackground(rl.DARKBLUE)
 	dt := f32(time.duration_seconds(time.tick_diff(prev, time.tick_now())))/gsDelta
 
 	if sync.mutex_guard(&gsMutex) {
