@@ -22,6 +22,7 @@ mapChanges: logic.MapChanges
 mcMutex: sync.Mutex
 gamestate: logic.Gamestate
 prevGamestate: logic.Gamestate
+prevTick: time.Tick
 gsDelta: f32
 gsMutex: sync.Mutex
 plinf: logic.PlayerInfo
@@ -40,7 +41,7 @@ screenPlayerPos := rl.Vector2{
 strBuf := strings.Builder{}
 
 respawn :: proc() {
-	plinf.pos = logic.MAP_POS + 
+	plinf.pos = logic.MAP_POS +
 	{logic.MAP_SIZE*rand.float32(), -200}
 	plinf.health = 100
 	plinf.vel = {0, 0}
@@ -128,10 +129,9 @@ udp_send_playerinfo :: proc(sock: net.UDP_Socket, buf: []u8) {
 }
 
 
-prev: time.Tick
 udp_receive_thread :: proc(sock: net.UDP_Socket) {
 	buf: [size_of(logic.Gamestate)]u8
-	prev = time.tick_now()
+	prevTick = time.tick_now()
 
 	for {
 		_, _, err := net.recv_udp(sock, buf[:])
@@ -141,8 +141,8 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 		}
 
 		curr := time.tick_now()
-		deltaDur := time.tick_diff(prev, curr)
-		prev = curr
+		deltaDur := time.tick_diff(prevTick, curr)
+		prevTick = curr
 
 		if sync.mutex_guard(&gsMutex) {
 			gsDelta = f32(time.duration_seconds(deltaDur))
@@ -229,8 +229,8 @@ draw_hp :: proc(pos: rl.Vector2, hp: f32) {
 
 draw_all :: proc(myID: logic.ID) {
 	rl.BeginDrawing()
-	rl.ClearBackground(rl.DARKBLUE)
-	dt := f32(time.duration_seconds(time.tick_diff(prev, time.tick_now())))/gsDelta
+	rl.ClearBackground(rl.GetColor(0x6A8DB5))
+	dt := f32(time.duration_seconds(time.tick_diff(prevTick, time.tick_now())))/gsDelta
 
 	if sync.mutex_guard(&gsMutex) {
 		for i := 0; i < int(gamestate.playersCount); i+=1 {
@@ -270,7 +270,6 @@ main :: proc() {
 		fmt.println("Usage: [ADDRESS]:[PORT] [HIGH_REF_RATE]")
 		fmt.println("  [ADDRESS]:[PORT]    - server address and port to listen on")
 		fmt.println("  [HIGH_REF_RATE]     - set to 1 for 144fps, 0 for 60fps")
-		fmt.println("                        (default is 0)")
 		return
 	} else {
 		val, ok := net.parse_endpoint(os.args[1])
