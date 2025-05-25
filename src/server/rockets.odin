@@ -62,8 +62,9 @@ rocket_check_meatshot :: proc(rocket: logic.Rocket, buf: []u8) -> bool {
 
 				time.sleep(time.Microsecond * 1500)
 				mem.copy(mem.raw_data(buf[:]), &explosion, size_of(explosion))
-				for _, player in players {
+				for _, &player in players {
 					net.send_tcp(player.tcpSock, buf[:size_of(explosion)])
+					player_handle_explosion(&player.playerInfo, explosion)
 				}
 			}
 		}
@@ -112,8 +113,9 @@ rocket_map_collision :: proc(rocket: logic.Rocket, buf: []u8) -> bool {
 
 			time.sleep(time.Microsecond * 1500)
 			mem.copy(mem.raw_data(buf[:]), &explosion, size_of(explosion))
-			for _, player in players {
+			for _, &player in players {
 				net.send_tcp(player.tcpSock, buf[:size_of(explosion)])
+				player_handle_explosion(&player.playerInfo, explosion)
 			}
 		}
 	}

@@ -60,15 +60,50 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 			continue
 		}
 
-		change := logic.PlayerInfo{}
+		change := logic.UpdPlayerInfo{}
 		mem.copy(&change, mem.raw_data(buf[:]), size_of(change))
 
 		if sync.mutex_guard(&psMutex) {
 			ok := change.id in players
 			if ok {
 				pl := &players[change.id]
-				pl.playerInfo = change
 				pl.udpEndp = peer
+				pl.playerInfo.moveDir = change.moveDir
+				if change.isJumping && pl.playerInfo.onGround {
+					pl.playerInfo.onGround = false
+					pl.playerInfo.vel.y -= logic.PLAYER_JUMP_FORCE
+				}
+				if change.isDigging && pl.diggingTimer > logic.PLAYER_DIGGING_SPEED {
+					pl.diggingTimer = 0
+					packet := logic.PacketMapChange{
+						type = .MAP_CHANGE,
+						mapChange = {
+							pos = pl.playerInfo.pos + logic.PLAYER_RECT / 2.0 + 
+							rl.Vector2Normalize(change.viewDir) * 20,
+							rad = 35,
+						},
+					}
+					if sync.mutex_guard(&mcMutex) {
+						logic.map_accept_change(m, packet.mapChange)
+					}
+					mem.copy(mem.raw_data(buf[:]), &packet, size_of(packet))
+					for _, player in players {
+						if sync.mutex_guard(&tsMutex) {
+							net.send_tcp(player.tcpSock, buf[:size_of(packet)])
+						}
+					}
+				}
+				if change.isShooting && pl.shootingTimer > logic.PLAYER_SHOOTING_SPEED {
+					pl.shootingTimer = 0
+					rocket := logic.Rocket{
+						id = change.id,
+						pos = pl.playerInfo.pos + logic.PLAYER_RECT / 2.0,
+						dir = rl.Vector2Normalize(change.viewDir),
+					}
+					if sync.mutex_guard(&rsMutex) {
+						append(&rockets, rocket)
+					}
+				}
 			}
 		}
 	}
@@ -123,8 +158,12 @@ tcp_client_thread :: proc(clientSock: net.TCP_Socket, clientEndp: net.Endpoint) 
 		case .PLAYER_ID:
 			if sync.mutex_guard(&psMutex) {
 				players[idCnt] = logic.Player{
-					playerInfo = logic.PlayerInfo{id = idCnt},
 					tcpSock = clientSock,
+					playerInfo = logic.PlayerInfo{
+						id = idCnt,
+						pos = {200, 100},
+						health = 100,
+					},	
 				}
 			}
 
@@ -220,6 +259,7 @@ main :: proc() {
 	thread.create_and_start_with_poly_data(tcpSock, tcp_thread)
 	thread.create_and_start_with_poly_data(udpSock, udp_receive_thread)
 	thread.create_and_start_with_poly_data(udpSock, udp_send_thread)
+	thread.create_and_start(players_update_thread)
 	thread.create_and_start(rockets_udpate_thread)
 
 	for {

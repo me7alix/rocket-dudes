@@ -24,11 +24,13 @@ gamestate: logic.Gamestate
 prevGamestate: logic.Gamestate
 gsDelta: f32
 gsMutex: sync.Mutex
-plinf: logic.PlayerInfo
-piMutex: sync.Mutex
 serverEndp: net.Endpoint
 sprites: rl.Texture2D
 groundTexture: rl.Texture2D
+updPlinf: logic.UpdPlayerInfo
+plinf: logic.PlayerInfo
+playerID: logic.ID
+idMutex: sync.Mutex
 
 physicIters := 4
 screenWidth := 1280
@@ -38,13 +40,6 @@ screenPlayerPos := rl.Vector2{
 	f32(screenWidth), f32(screenHeight)
 } / 2.0 - logic.PLAYER_RECT/2.0
 strBuf := strings.Builder{}
-
-respawn :: proc() {
-	plinf.pos = logic.MAP_POS + 
-	{logic.MAP_SIZE*rand.float32(), -200}
-	plinf.health = 100
-	plinf.vel = {0, 0}
-} 
 
 tcp_receive_thread :: proc(sock: net.TCP_Socket) {
 	buf: [size_of(logic.PacketMapChanges)]u8
@@ -63,9 +58,8 @@ tcp_receive_thread :: proc(sock: net.TCP_Socket) {
 		case .PLAYER_ID:
 			playerIDPacket := logic.PacketPlayerID{}
 			mem.copy(&playerIDPacket, mem.raw_data(buf[:]), size_of(playerIDPacket))
-
-			if sync.mutex_guard(&piMutex) {
-				plinf.id = playerIDPacket.playerID
+			if sync.guard(&idMutex) {
+				playerID = playerIDPacket.playerID
 			}
 
 		case .MAP_CHANGES:
@@ -93,34 +87,14 @@ tcp_receive_thread :: proc(sock: net.TCP_Socket) {
 			expPacket := logic.PacketExplosion{}
 			mem.copy(&expPacket, mem.raw_data(buf[:]), size_of(expPacket))
 
-			if logic.intersect_circle_rect(expPacket.pos, logic.ROCKET_EXP_RAD, 
-				plinf.pos, plinf.pos + logic.PLAYER_RECT) {
-
-				expVec := (plinf.pos + logic.PLAYER_RECT/2.0) - expPacket.pos
-				maxRad := expPacket.rad + logic.PLAYER_RECT.y/2.0
-				normForce := math.clamp(1 - rl.Vector2Length(expVec) / maxRad, 0, 1)
-
-				if sync.mutex_guard(&piMutex) {
-					plinf.vel += rl.Vector2Normalize(expVec) * normForce * logic.ROCKET_EXP_FORCE
-					if plinf.id != expPacket.id {
-						plinf.health -= normForce * logic.ROCKET_EXP_DAMAGE
-						if plinf.health <= 0 {
-							respawn()
-						}
-					}
-				}
-			}
-
 			expl_anim_add(expPacket.pos)
 		}
 	}
 }
 
-udp_send_playerinfo :: proc(sock: net.UDP_Socket, buf: []u8) {
-	if sync.mutex_guard(&piMutex) {
-		mem.copy(mem.raw_data(buf[:]), &plinf, size_of(plinf))
-	}
-	_, err := net.send_udp(sock, buf[:size_of(plinf)], serverEndp)
+udp_send_upd_plinf :: proc(sock: net.UDP_Socket, buf: []u8) {
+	mem.copy(mem.raw_data(buf[:]), &updPlinf, size_of(updPlinf))
+	_, err := net.send_udp(sock, buf[:size_of(updPlinf)], serverEndp)
 	if err != nil {
 		fmt.eprintf("udp send error: %v\n", err)
 		return
@@ -152,72 +126,10 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 	}
 }
 
-tcp_send_map_change :: proc(tcpSock: net.TCP_Socket, buf: []u8) {
-	screenCenter := rl.Vector2{f32(screenWidth), f32(screenHeight)}/2.0
-	dig := rl.Vector2Normalize(rl.GetMousePosition()-screenCenter)*20+screenCenter
-	packet := logic.PacketMapChange{
-		type = .MAP_CHANGE,
-		mapChange = logic.MapChange{
-			pos = dig+camera.pos,
-			rad = 40,
-		}
-	}
-	mem.copy(mem.raw_data(buf[:]), &packet, size_of(packet))
-	net.send_tcp(tcpSock, buf[:size_of(packet)])
-}
-
-tcp_send_launch_rocket :: proc(tcpSock: net.TCP_Socket, buf: []u8, myID: logic.ID) {
-	packet := logic.PacketLaunchRocket{
-		type = .ROCKET_LAUNCH,
-		rocket = logic.Rocket{
-			id = myID,
-			pos = plinf.pos+logic.PLAYER_RECT/2.0,
-			dir = rl.Vector2Normalize(rl.GetMousePosition()-(screenPlayerPos+logic.PLAYER_RECT/2.0)),
-		}
-	}
-	mem.copy(mem.raw_data(buf[:]), &packet, size_of(packet))
-	net.send_tcp(tcpSock, buf[:size_of(packet)])
-}
-
 request_player_id :: proc(tcpSock: net.TCP_Socket, buf: []u8) {
 	playerIDPacket := logic.PacketPlayerID{type = .PLAYER_ID}
 	mem.copy(mem.raw_data(buf[:]), &playerIDPacket, size_of(logic.PacketPlayerID))
 	net.send_tcp(tcpSock, buf[:size_of(logic.PacketPlayerID)])
-}
-
-update_physic ::proc() -> bool {
-	onGround := false	
-	plinf.moveDir = 0
-
-	if sync.mutex_guard(&piMutex) {
-		for i := 0; i < physicIters; i+=1 {
-			plinf.vel.y += 20 * rl.GetFrameTime() / f32(physicIters)
-			plinf.pos += plinf.vel / f32(physicIters) * rl.GetFrameTime() / 0.016
-			if rl.IsKeyDown(rl.KeyboardKey.A) {
-				plinf.pos.x -= rl.GetFrameTime() * logic.PLAYER_SPEED / f32(physicIters)
-				plinf.moveDir = -1
-				plinf.lastMoveDir = -1
-			}
-			if rl.IsKeyDown(rl.KeyboardKey.D) {
-				plinf.pos.x += rl.GetFrameTime() * logic.PLAYER_SPEED / f32(physicIters)
-				plinf.moveDir = 1
-				plinf.lastMoveDir = 1
-			}
-			logic.map_solve_collision(m, &plinf, &onGround)
-		}
-		if onGround {
-			plinf.vel.x = 0
-		}
-		if plinf.pos.y > logic.MAP_POS.y + logic.MAP_SIZE + 200 {
-			respawn()
-		}
-		if rl.IsKeyDown(rl.KeyboardKey.SPACE) && onGround {
-			plinf.vel.y += -10
-		}
-		camera.pos = plinf.pos-screenPlayerPos
-	}
-
-	return onGround
 }
 
 draw_hp :: proc(pos: rl.Vector2, hp: f32) {
@@ -233,6 +145,16 @@ draw_all :: proc(myID: logic.ID) {
 	dt := f32(time.duration_seconds(time.tick_diff(prev, time.tick_now())))/gsDelta
 
 	if sync.mutex_guard(&gsMutex) {
+		for i := 0; i < int(gamestate.playersCount); i+=1 {
+			plPos := linalg.lerp(prevGamestate.players[i].pos, gamestate.players[i].pos, dt)
+			if gamestate.players[i].id == myID {
+				camera.pos = plPos - screenPlayerPos
+				player_anim(gamestate.players[i], true, {})
+				draw_hp(screenPlayerPos, gamestate.players[i].health)
+				break
+			}
+		}
+
 		for i := 0; i < int(gamestate.playersCount); i+=1 {
 			if gamestate.players[i].id != myID {
 				plPos := linalg.lerp(prevGamestate.players[i].pos, gamestate.players[i].pos, dt)
@@ -253,11 +175,6 @@ draw_all :: proc(myID: logic.ID) {
 
 	if sync.mutex_guard(&mMutex) {
 		logic.map_draw(m, camera.pos, groundTexture)
-	}
-
-	if sync.mutex_guard(&piMutex) {
-		player_anim(plinf, true, {})
-		draw_hp(screenPlayerPos, plinf.health)
 	}
 
 	expl_anim_update()
@@ -291,8 +208,6 @@ main :: proc() {
 	defer free(m)
 
 	buf: [2048]u8 
-	plinf.pos = {300, 0}
-	plinf.health = 100
 	shootingTimer: f32 = 0
 
 	udpSock, usErr := net.make_unbound_udp_socket(.IP4)
@@ -337,21 +252,35 @@ main :: proc() {
 	for !rl.WindowShouldClose() {
 		shootingTimer += rl.GetFrameTime()
 
-		sync.mutex_lock(&piMutex)
-		myID := plinf.id
-		sync.mutex_unlock(&piMutex)
+		sync.mutex_lock(&idMutex)
+		myID := playerID
+		sync.mutex_unlock(&idMutex)
 
-		if rl.IsMouseButtonPressed(rl.MouseButton.RIGHT) {
-			tcp_send_map_change(tcpSock, buf[:])
+		updPlinf = {}
+		updPlinf.id = myID
+		updPlinf.viewDir = rl.GetMousePosition() -
+			(screenPlayerPos + logic.PLAYER_RECT / 2.0)
+
+		if rl.IsKeyDown(rl.KeyboardKey.D) {
+			updPlinf.moveDir = 1
+		}
+		if rl.IsKeyDown(rl.KeyboardKey.A) {
+			updPlinf.moveDir = -1
 		}
 
-		if rl.IsMouseButtonDown(rl.MouseButton.LEFT) && shootingTimer > 0.8 {
-			shootingTimer = 0
-			tcp_send_launch_rocket(tcpSock, buf[:], myID)
+		if rl.IsMouseButtonDown(rl.MouseButton.RIGHT) {
+			updPlinf.isDigging = true
 		}
 
-		plinf.onGround = update_physic()
-		udp_send_playerinfo(udpSock, buf[:size_of(buf)])
+		if rl.IsKeyDown(rl.KeyboardKey.SPACE) {
+			updPlinf.isJumping = true
+		}
+
+		if rl.IsMouseButtonDown(rl.MouseButton.LEFT) {
+			updPlinf.isShooting = true
+		}
+
+		udp_send_upd_plinf(udpSock, buf[:size_of(buf)])
 
 		draw_all(myID)
 	}
