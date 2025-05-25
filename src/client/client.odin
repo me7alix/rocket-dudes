@@ -22,7 +22,8 @@ mapChanges: logic.MapChanges
 mcMutex: sync.Mutex
 gamestate: logic.Gamestate
 prevGamestate: logic.Gamestate
-gsDelta: f32
+deltaDur: time.Duration
+prevTick: time.Tick
 gsMutex: sync.Mutex
 serverEndp: net.Endpoint
 sprites: rl.Texture2D
@@ -101,11 +102,9 @@ udp_send_upd_plinf :: proc(sock: net.UDP_Socket, buf: []u8) {
 	}
 }
 
-
-prev: time.Tick
 udp_receive_thread :: proc(sock: net.UDP_Socket) {
 	buf: [size_of(logic.Gamestate)]u8
-	prev = time.tick_now()
+	prevTick = time.tick_now()
 
 	for {
 		_, _, err := net.recv_udp(sock, buf[:])
@@ -114,12 +113,10 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 			return
 		}
 
-		curr := time.tick_now()
-		deltaDur := time.tick_diff(prev, curr)
-		prev = curr
-
 		if sync.mutex_guard(&gsMutex) {
-			gsDelta = f32(time.duration_seconds(deltaDur))
+			curr := time.tick_now()
+			deltaDur = time.tick_diff(prevTick, curr)
+			prevTick = curr
 			prevGamestate = gamestate
 			mem.copy(&gamestate, mem.raw_data(buf[:]), size_of(gamestate))
 		}
@@ -142,9 +139,10 @@ draw_hp :: proc(pos: rl.Vector2, hp: f32) {
 draw_all :: proc(myID: logic.ID) {
 	rl.BeginDrawing()
 	rl.ClearBackground(rl.DARKBLUE)
-	dt := f32(time.duration_seconds(time.tick_diff(prev, time.tick_now())))/gsDelta
 
 	if sync.mutex_guard(&gsMutex) {
+		dt := f32(time.duration_seconds(time.tick_diff(prevTick, time.tick_now())) / time.duration_seconds(deltaDur))
+
 		for i := 0; i < int(gamestate.playersCount); i+=1 {
 			plPos := linalg.lerp(prevGamestate.players[i].pos, gamestate.players[i].pos, dt)
 			if gamestate.players[i].id == myID {
@@ -166,7 +164,7 @@ draw_all :: proc(myID: logic.ID) {
 
 		for i := 0; i < int(gamestate.rocketsCount); i+=1 {
 			rocketPos := gamestate.rockets[i].pos
-			if linalg.distance(prevGamestate.rockets[i].pos, gamestate.rockets[i].pos) < logic.ROCKET_RAD*2 {
+			if linalg.distance(prevGamestate.rockets[i].pos, gamestate.rockets[i].pos) < logic.ROCKET_RAD*6 {
 				rocketPos = linalg.lerp(prevGamestate.rockets[i].pos, gamestate.rockets[i].pos, dt)
 			}
 			rl.DrawCircleV(rocketPos-camera.pos, logic.ROCKET_RAD, rl.YELLOW)
@@ -264,6 +262,7 @@ main :: proc() {
 		if rl.IsKeyDown(rl.KeyboardKey.D) {
 			updPlinf.moveDir = 1
 		}
+
 		if rl.IsKeyDown(rl.KeyboardKey.A) {
 			updPlinf.moveDir = -1
 		}

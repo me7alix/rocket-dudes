@@ -7,7 +7,11 @@ import "core:time"
 import "../logic"
 import rl "vendor:raylib"
 
+@(private="file")
+prev: time.Tick
+@(private="file")
 physicIters := 4
+@(private="file")
 deltaTime: f32
 
 player_handle_explosion :: proc(plinf: ^logic.PlayerInfo, expPacket: logic.PacketExplosion) {
@@ -28,6 +32,7 @@ player_handle_explosion :: proc(plinf: ^logic.PlayerInfo, expPacket: logic.Packe
 	}
 }
 
+@(private="file")
 player_respawn :: proc(plinf: ^logic.PlayerInfo) {
 	plinf.pos = logic.MAP_POS + 
 	{logic.MAP_SIZE*rand.float32(), -200}
@@ -35,6 +40,7 @@ player_respawn :: proc(plinf: ^logic.PlayerInfo) {
 	plinf.vel = {0, 0}
 }
 
+@(private="file")
 player_update_physic :: proc(plinf: ^logic.PlayerInfo) {
 	for i := 0; i < physicIters; i+=1 {
 		plinf.vel.y += 20 * deltaTime / f32(physicIters)
@@ -58,22 +64,15 @@ player_update_physic :: proc(plinf: ^logic.PlayerInfo) {
 }
 
 players_update_thread :: proc() {
-	prev: time.Tick
+	curr := time.tick_now()
+	deltaDur := time.tick_diff(prev, curr)
+	deltaTime = f32(time.duration_seconds(deltaDur))
+	prev = curr
 
-	for {
-		curr := time.tick_now()
-		deltaDur := time.tick_diff(prev, curr)
-		deltaTime = f32(time.duration_seconds(deltaDur))
-		prev = curr
-
-		if sync.mutex_guard(&psMutex) {
-			for _, &player in players {
-				player.shootingTimer += deltaTime
-				player.diggingTimer += deltaTime
-				player_update_physic(&player.playerInfo)
-			}
-		}
-
-		time.sleep(time.Millisecond * 10)
+	for _, &player in players {
+		player.shootingTimer += deltaTime
+		player.diggingTimer += deltaTime
+		player_update_physic(&player.playerInfo)
 	}
+
 }

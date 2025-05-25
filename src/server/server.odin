@@ -28,25 +28,31 @@ udp_send_thread :: proc(sock: net.UDP_Socket) {
 	emptyEndp := net.Endpoint{}
 
 	for {
-		if sync.mutex_guard(&rsMutex) {
-			logic.gamestate_set_rockets(&gamestate, rockets)
-		}
-		if sync.mutex_guard(&psMutex) {
-			logic.gamestate_set_players_info(&gamestate, players)
-			mem.copy(mem.raw_data(buf[:]), &gamestate, size_of(gamestate))
+		sync.mutex_lock(&psMutex)
+		sync.mutex_lock(&rsMutex)
 
-			for id, player in players {
-				if player.udpEndp == emptyEndp {
-					continue
-				}
-				_, serr := net.send_udp(sock, buf[:size_of(gamestate)], player.udpEndp)
-				if serr != nil {
-					fmt.printf("udp send error: %v\n", serr)
-				}
+		rockets_udpate_thread()
+		logic.gamestate_set_rockets(&gamestate, rockets)
+
+		players_update_thread()
+		logic.gamestate_set_players_info(&gamestate, players)
+
+		mem.copy(mem.raw_data(buf[:]), &gamestate, size_of(gamestate))
+
+		for id, player in players {
+			if player.udpEndp == emptyEndp {
+				continue
+			}
+			_, serr := net.send_udp(sock, buf[:size_of(gamestate)], player.udpEndp)
+			if serr != nil {
+				fmt.printf("udp send error: %v\n", serr)
 			}
 		}
 
-		time.sleep(time.Millisecond * 12)
+		sync.mutex_unlock(&psMutex)
+		sync.mutex_unlock(&rsMutex)
+
+		time.sleep(time.Millisecond * 30)
 	}
 }
 
@@ -259,8 +265,6 @@ main :: proc() {
 	thread.create_and_start_with_poly_data(tcpSock, tcp_thread)
 	thread.create_and_start_with_poly_data(udpSock, udp_receive_thread)
 	thread.create_and_start_with_poly_data(udpSock, udp_send_thread)
-	thread.create_and_start(players_update_thread)
-	thread.create_and_start(rockets_udpate_thread)
 
 	for {
 		time.sleep(time.Second)
