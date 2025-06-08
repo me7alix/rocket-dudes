@@ -1,4 +1,4 @@
-package logic
+package shared
 
 import "core:net"
 import "core:time"
@@ -9,6 +9,9 @@ MAX_PLAYERS :: 4
 MAX_ROCKETS :: 16
 PLAYER_RECT :: rl.Vector2{30, 50}
 PLAYER_SPEED :: 230
+PLAYER_JUMP_FORCE :: 10
+PLAYER_DIGGING_SPEED :: 0.2
+PLAYER_SHOOTING_SPEED :: 0.7
 
 ROCKET_RAD :: 7
 ROCKET_EXP_RAD :: 50
@@ -60,6 +63,8 @@ Player :: struct {
 	tcpSock: net.TCP_Socket,
 	udpEndp: net.Endpoint,
 	playerInfo: PlayerInfo,
+	shootingTimer: f32,
+	diggingTimer: f32,
 }
 
 PlayerInfo :: struct {
@@ -70,6 +75,15 @@ PlayerInfo :: struct {
 	moveDir: i8,
 	lastMoveDir: i8,
 	onGround: bool,
+}
+
+UpdPlayerInfo :: struct {
+	id: u16,
+	moveDir: i8,
+	viewDir: rl.Vector2,
+	isJumping: bool,
+	isShooting: bool,
+	isDigging: bool,
 }
 
 Rocket :: struct {

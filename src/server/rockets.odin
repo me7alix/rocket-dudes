@@ -5,104 +5,61 @@ import "core:mem"
 import "core:sync"
 import "core:time"
 import "core:fmt"
-import "../logic/"
+import "../shared/"
 import rl "vendor:raylib"
 
-rocketBox := rl.Vector2{logic.ROCKET_RAD, logic.ROCKET_RAD}*2
 
-rocket_check_outside :: proc(rocket: logic.Rocket) -> bool {
-	return rocket.pos.x > logic.MAP_POS.x + logic.MAP_SIZE + 1000 || 
-	rocket.pos.x < logic.MAP_POS.x - 1000 ||
-	rocket.pos.y > logic.MAP_POS.y + logic.MAP_SIZE + 1000 || 
-	rocket.pos.y < logic.MAP_POS.y - 1200 
+@(private="file")
+rocketBox := rl.Vector2{shared.ROCKET_RAD, shared.ROCKET_RAD}*2
+@(private="file")
+buf: [1024]u8
+@(private="file")
+prev: time.Tick
+@(private="file")
+physicIters := 6
+
+@(private="file")
+rocket_check_outside :: proc(rocket: shared.Rocket) -> bool {
+	return rocket.pos.x > shared.MAP_POS.x + shared.MAP_SIZE + 1000 || 
+	rocket.pos.x < shared.MAP_POS.x - 1000 ||
+	rocket.pos.y > shared.MAP_POS.y + shared.MAP_SIZE + 1000 || 
+	rocket.pos.y < shared.MAP_POS.y - 1200 
 }
 
-rocket_check_meatshot :: proc(rocket: logic.Rocket, buf: []u8) -> bool {
+@(private="file")
+rocket_check_meatshot :: proc(rocket: shared.Rocket, buf: []u8) -> bool {
 	isHit := false
 
-	change := logic.PacketMapChange{
+	change := shared.PacketMapChange{
 		type = .MAP_CHANGE,
-		mapChange = {rocket.pos, logic.ROCKET_EXP_RAD}
+		mapChange = {rocket.pos, shared.ROCKET_EXP_RAD}
 	}
 
-	explosion := logic.PacketExplosion{
+	explosion := shared.PacketExplosion{
 		type = .EXPLOSION,
 		id = rocket.id,
 		pos = rocket.pos,
-		rad = logic.ROCKET_EXP_RAD,
+		rad = shared.ROCKET_EXP_RAD,
 	}
 
-	if sync.mutex_guard(&psMutex) {
-		if sync.mutex_guard(&tsMutex) {
-			for _, player in players {
-				if logic.intersect_circle_rect(rocket.pos, logic.ROCKET_RAD, player.playerInfo.pos,
-					player.playerInfo.pos + logic.PLAYER_RECT) && rocket.id != player.playerInfo.id {
-					isHit = true
-					break
-				}
+	if sync.mutex_guard(&tsMutex) {
+		for _, player in players {
+			if shared.intersect_circle_rect(rocket.pos, shared.ROCKET_RAD, player.playerInfo.pos,
+				player.playerInfo.pos + shared.PLAYER_RECT) && rocket.id != player.playerInfo.id {
+				isHit = true
+				break
 			}
 		}
 	}
 
 	if isHit {
 		if sync.mutex_guard(&mMutex) {
-			logic.map_accept_change(m, change.mapChange)
+			shared.map_accept_change(m, change.mapChange)
 		}
 		if sync.mutex_guard(&mcMutex) {
 			mapChanges.changes[mapChanges.count] = change.mapChange
 			mapChanges.count += 1
 		}
-		if sync.mutex_guard(&psMutex) {
-			if sync.mutex_guard(&tsMutex) {
-				mem.copy(mem.raw_data(buf[:]), &change, size_of(change))
-				for _, player in players {
-					net.send_tcp(player.tcpSock, buf[:size_of(change)])
-					time.sleep(time.Microsecond * 1)
-				}
-
-				time.sleep(time.Microsecond * 1500)
-				mem.copy(mem.raw_data(buf[:]), &explosion, size_of(explosion))
-				for _, player in players {
-					net.send_tcp(player.tcpSock, buf[:size_of(explosion)])
-				}
-			}
-		}
-	}
-
-	return isHit
-}
-
-rocket_map_collision :: proc(rocket: logic.Rocket, buf: []u8) -> bool {
-	sync.mutex_lock(&mMutex)
-	isCollision := logic.map_detect_collision(m, rocket.pos-(rocketBox/2.0), rocketBox)
-	sync.mutex_unlock(&mMutex)
-
-	if !isCollision {
-		return false
-	}
-
-	change := logic.PacketMapChange{
-		type = .MAP_CHANGE,
-		mapChange = {rocket.pos, logic.ROCKET_EXP_RAD}
-	}
-
-	explosion := logic.PacketExplosion{
-		type = .EXPLOSION,
-		id = rocket.id,
-		pos = rocket.pos,
-		rad = logic.ROCKET_EXP_RAD,
-	}
-
-	if sync.mutex_guard(&mMutex) {
-		logic.map_accept_change(m, change.mapChange)
-	}
-
-	if sync.mutex_guard(&mcMutex) {
-		mapChanges.changes[mapChanges.count] = change.mapChange
-		mapChanges.count += 1
-	}
-
-	if sync.mutex_guard(&psMutex) {
 		if sync.mutex_guard(&tsMutex) {
 			mem.copy(mem.raw_data(buf[:]), &change, size_of(change))
 			for _, player in players {
@@ -112,9 +69,59 @@ rocket_map_collision :: proc(rocket: logic.Rocket, buf: []u8) -> bool {
 
 			time.sleep(time.Microsecond * 1500)
 			mem.copy(mem.raw_data(buf[:]), &explosion, size_of(explosion))
-			for _, player in players {
+			for _, &player in players {
 				net.send_tcp(player.tcpSock, buf[:size_of(explosion)])
+				player_handle_explosion(&player.playerInfo, explosion)
 			}
+		}
+	}
+
+	return isHit
+}
+
+@(private="file")
+rocket_map_collision :: proc(rocket: shared.Rocket, buf: []u8) -> bool {
+	sync.mutex_lock(&mMutex)
+	isCollision := shared.map_detect_collision(m, rocket.pos-(rocketBox/2.0), rocketBox)
+	sync.mutex_unlock(&mMutex)
+
+	if !isCollision {
+		return false
+	}
+
+	change := shared.PacketMapChange{
+		type = .MAP_CHANGE,
+		mapChange = {rocket.pos, shared.ROCKET_EXP_RAD}
+	}
+
+	explosion := shared.PacketExplosion{
+		type = .EXPLOSION,
+		id = rocket.id,
+		pos = rocket.pos,
+		rad = shared.ROCKET_EXP_RAD,
+	}
+
+	if sync.mutex_guard(&mMutex) {
+		shared.map_accept_change(m, change.mapChange)
+	}
+
+	if sync.mutex_guard(&mcMutex) {
+		mapChanges.changes[mapChanges.count] = change.mapChange
+		mapChanges.count += 1
+	}
+
+	if sync.mutex_guard(&tsMutex) {
+		mem.copy(mem.raw_data(buf[:]), &change, size_of(change))
+		for _, player in players {
+			net.send_tcp(player.tcpSock, buf[:size_of(change)])
+			time.sleep(time.Microsecond * 1)
+		}
+
+		time.sleep(time.Microsecond * 1500)
+		mem.copy(mem.raw_data(buf[:]), &explosion, size_of(explosion))
+		for _, &player in players {
+			net.send_tcp(player.tcpSock, buf[:size_of(explosion)])
+			player_handle_explosion(&player.playerInfo, explosion)
 		}
 	}
 
@@ -122,41 +129,25 @@ rocket_map_collision :: proc(rocket: logic.Rocket, buf: []u8) -> bool {
 }
 
 rockets_udpate_thread :: proc() {
-	buf: [2048]u8
-	prev := time.tick_now()
+	curr := time.tick_now()
+	deltaDur := time.tick_diff(prev, curr)
+	deltaTime := f32(time.duration_seconds(deltaDur))
+	prev = curr
 
-	for {
-		curr := time.tick_now()
-		deltaDur := time.tick_diff(prev, curr)
-		dt := f32(time.duration_seconds(deltaDur))
-		prev = curr
-
+	for iter := 0; iter < physicIters; iter+=1 {
 		for i := 0; i < len(rockets); i+=1 {
-			rocket: logic.Rocket
+			rockets[i].pos += rockets[i].dir * deltaTime * shared.ROCKET_SPEED / f32(physicIters)
 
-			if sync.mutex_guard(&rsMutex) {
-				rockets[i].pos += rockets[i].dir * dt * logic.ROCKET_SPEED
-				rocket = rockets[i]
-			}
-
-			if rocket_map_collision(rocket, buf[:]) {
-				if sync.mutex_guard(&rsMutex) {
-					unordered_remove(&rockets, i)
-				}
+			if rocket_map_collision(rockets[i], buf[:]) {
+				unordered_remove(&rockets, i)
 				i -= 1
-			} else if rocket_check_outside(rocket) {
-				if sync.mutex_guard(&rsMutex) {
-					unordered_remove(&rockets, i)
-				}
+			} else if rocket_check_outside(rockets[i]) {
+				unordered_remove(&rockets, i)
 				i -= 1
-			} else if rocket_check_meatshot(rocket, buf[:]) {
-				if sync.mutex_guard(&rsMutex) {
-					unordered_remove(&rockets, i)
-				}
+			} else if rocket_check_meatshot(rockets[i], buf[:]) {
+				unordered_remove(&rockets, i)
 				i -= 1
 			}
 		}
-
-		time.sleep(time.Millisecond * 6)
 	}
 }

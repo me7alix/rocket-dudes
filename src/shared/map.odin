@@ -1,4 +1,4 @@
-package logic
+package shared
 
 import rl "vendor:raylib"
 import "core:math"
@@ -196,10 +196,10 @@ map_draw :: proc(m: ^Map, plpos: rl.Vector2, texture: rl.Texture2D) {
 	draw_req(m, plpos, texture, ROOT_VOX, MAP_POS, 0)
 }
 
-map_solve_collision :: proc(m: ^Map, plinf: ^PlayerInfo, onGround: ^bool) {
-	onGround^ = false
+map_solve_collision :: proc(m: ^Map, plinf: ^PlayerInfo) {
+	plinf.onGround = false
 	collide_req :: proc(
-		m: ^Map, plinf: ^PlayerInfo, onGround: ^bool,
+		m: ^Map, plinf: ^PlayerInfo,
 		vi: u32, vpos: rl.Vector2, depth: u32
 	) {
 		size := MAP_SIZE / math.pow_f32(2, f32(depth))
@@ -223,20 +223,20 @@ map_solve_collision :: proc(m: ^Map, plinf: ^PlayerInfo, onGround: ^bool) {
 					plinf.pos.y = vpos.y + size
 				} else {
 					plinf.pos.y = vpos.y - PLAYER_RECT.y
-					onGround^ = true
+					plinf.onGround = true
 				}
 			}
 		}
 
 		if !m.voxels[vi].isIntact {
 			for i := 0; i < 4; i+=1 {
-				collide_req(m, plinf, onGround, m.voxels[vi].children[i], 
+				collide_req(m, plinf, m.voxels[vi].children[i], 
 					vpos + voxelsPos[i] * size / 2.0, depth+1)
 			}
 		}
 	}
 
-	collide_req(m, plinf, onGround, 
+	collide_req(m, plinf, 
 		ROOT_VOX, MAP_POS, 0)
 }
 

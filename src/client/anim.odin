@@ -4,7 +4,7 @@ import rl "vendor:raylib"
 import "core:sync"
 import "core:math"
 import "core:fmt"
-import "../logic"
+import "../shared"
 
 Animation :: struct {
 	texture: rl.Texture2D,
@@ -22,6 +22,7 @@ animWalkR := Animation{
 	offset = {-3, 6},
 	length = 10,
 	delta = 49,
+	speed = 9,
 }
 
 animWalkL := Animation{
@@ -30,6 +31,7 @@ animWalkL := Animation{
 	offset = {-13, 6},
 	length = 10,
 	delta = 49,
+	speed = 9,
 }
 
 animIdleR := Animation{
@@ -60,6 +62,7 @@ animJumpL := Animation{
 	offset = {-14, 5},
 	length = 4,
 	delta = 47,
+	speed = 9,
 }
 
 animBombExpl := Animation{
@@ -68,6 +71,7 @@ animBombExpl := Animation{
 	offset = {-20, -5},
 	length = 16,
 	delta = 40,
+	speed = 13,
 }
 
 anim_draw :: proc(a: ^Animation, pos: rl.Vector2, destSize: rl.Vector2 = {0, 0}) {
@@ -75,7 +79,7 @@ anim_draw :: proc(a: ^Animation, pos: rl.Vector2, destSize: rl.Vector2 = {0, 0})
 	rl.DrawTextureRec(a.texture, {txPos.x, txPos.y, a.size.x, a.size.y}, pos+a.offset, rl.WHITE)
 }
 
-player_anim :: proc(pi: logic.PlayerInfo, isMe: bool, intrPos: rl.Vector2) {
+player_anim :: proc(pi: shared.PlayerInfo, isMe: bool, intrPos: rl.Vector2) {
 	pos := intrPos 
 	if isMe {
 		pos = screenPlayerPos
@@ -83,10 +87,10 @@ player_anim :: proc(pi: logic.PlayerInfo, isMe: bool, intrPos: rl.Vector2) {
 
 	if pi.onGround {
 		if pi.moveDir > 0 {
-			animWalkR.spriteID = i32(rl.GetTime() * 9)
+			animWalkR.spriteID = i32(rl.GetTime() * f64(animWalkR.speed))
 			anim_draw(&animWalkR, pos)
 		} else if pi.moveDir < 0 {
-			animWalkL.spriteID = i32(rl.GetTime() * 9)
+			animWalkL.spriteID = i32(rl.GetTime() * f64(animWalkL.speed))
 			anim_draw(&animWalkL, pos)
 		} else {
 			if pi.lastMoveDir > 0 {
@@ -134,7 +138,7 @@ expl_anim_add :: proc(pos: rl.Vector2) {
 expl_anim_update :: proc() {
 	if sync.mutex_guard(&eaMutex) {
 		for i := 0; i < len(explAnims); i+=1 {
-			explAnims[i].anim.spriteID = i32(explAnims[i].timer * 13)
+			explAnims[i].anim.spriteID = i32(explAnims[i].timer * explAnims[i].anim.speed)
 			if explAnims[i].anim.spriteID >= explAnims[i].anim.length {
 				unordered_remove(&explAnims, i)
 				i -= 1
