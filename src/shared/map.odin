@@ -1,4 +1,4 @@
-package logic
+package shared
 
 import rl "vendor:raylib"
 import "core:math"

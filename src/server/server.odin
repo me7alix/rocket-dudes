@@ -9,22 +9,22 @@ import "core:os"
 import "core:mem"
 import "core:strconv"
 import rl "vendor:raylib"
-import "../logic/"
+import "../shared/"
 
-m: ^logic.Map
+m: ^shared.Map
 mMutex: sync.Mutex
 tsMutex: sync.Mutex
-idCnt: logic.ID
-gamestate: logic.Gamestate
-mapChanges: logic.MapChanges
+idCnt: shared.ID
+gamestate: shared.Gamestate
+mapChanges: shared.MapChanges
 mcMutex: sync.Mutex
-rockets: [dynamic]logic.Rocket
+rockets: [dynamic]shared.Rocket
 rsMutex: sync.Mutex
-players: map[logic.ID]logic.Player
+players: map[shared.ID]shared.Player
 psMutex: sync.Mutex
 
 udp_send_thread :: proc(sock: net.UDP_Socket) {
-	buf: [size_of(logic.Gamestate)]u8
+	buf: [size_of(shared.Gamestate)]u8
 	emptyEndp := net.Endpoint{}
 
 	for {
@@ -32,10 +32,10 @@ udp_send_thread :: proc(sock: net.UDP_Socket) {
 		sync.mutex_lock(&rsMutex)
 
 		rockets_udpate_thread()
-		logic.gamestate_set_rockets(&gamestate, rockets)
+		shared.gamestate_set_rockets(&gamestate, rockets)
 
 		players_update_thread()
-		logic.gamestate_set_players_info(&gamestate, players)
+		shared.gamestate_set_players_info(&gamestate, players)
 
 		mem.copy(mem.raw_data(buf[:]), &gamestate, size_of(gamestate))
 
@@ -52,7 +52,7 @@ udp_send_thread :: proc(sock: net.UDP_Socket) {
 		sync.mutex_unlock(&psMutex)
 		sync.mutex_unlock(&rsMutex)
 
-		time.sleep(time.Millisecond * 30)
+		time.sleep(time.Millisecond * 15)
 	}
 }
 
@@ -66,7 +66,7 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 			continue
 		}
 
-		change := logic.UpdPlayerInfo{}
+		change := shared.UpdPlayerInfo{}
 		mem.copy(&change, mem.raw_data(buf[:]), size_of(change))
 
 		if sync.mutex_guard(&psMutex) {
@@ -77,20 +77,20 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 				pl.playerInfo.moveDir = change.moveDir
 				if change.isJumping && pl.playerInfo.onGround {
 					pl.playerInfo.onGround = false
-					pl.playerInfo.vel.y -= logic.PLAYER_JUMP_FORCE
+					pl.playerInfo.vel.y -= shared.PLAYER_JUMP_FORCE
 				}
-				if change.isDigging && pl.diggingTimer > logic.PLAYER_DIGGING_SPEED {
+				if change.isDigging && pl.diggingTimer > shared.PLAYER_DIGGING_SPEED {
 					pl.diggingTimer = 0
-					packet := logic.PacketMapChange{
+					packet := shared.PacketMapChange{
 						type = .MAP_CHANGE,
 						mapChange = {
-							pos = pl.playerInfo.pos + logic.PLAYER_RECT / 2.0 + 
+							pos = pl.playerInfo.pos + shared.PLAYER_RECT / 2.0 + 
 							rl.Vector2Normalize(change.viewDir) * 20,
 							rad = 35,
 						},
 					}
 					if sync.mutex_guard(&mcMutex) {
-						logic.map_accept_change(m, packet.mapChange)
+						shared.map_accept_change(m, packet.mapChange)
 					}
 					mem.copy(mem.raw_data(buf[:]), &packet, size_of(packet))
 					for _, player in players {
@@ -99,11 +99,11 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 						}
 					}
 				}
-				if change.isShooting && pl.shootingTimer > logic.PLAYER_SHOOTING_SPEED {
+				if change.isShooting && pl.shootingTimer > shared.PLAYER_SHOOTING_SPEED {
 					pl.shootingTimer = 0
-					rocket := logic.Rocket{
+					rocket := shared.Rocket{
 						id = change.id,
-						pos = pl.playerInfo.pos + logic.PLAYER_RECT / 2.0,
+						pos = pl.playerInfo.pos + shared.PLAYER_RECT / 2.0,
 						dir = rl.Vector2Normalize(change.viewDir),
 					}
 					if sync.mutex_guard(&rsMutex) {
@@ -116,8 +116,8 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 }
 
 tcp_client_thread :: proc(clientSock: net.TCP_Socket, clientEndp: net.Endpoint) {
-	buf: [size_of(logic.PacketMapChanges)]u8
-	playerID: logic.ID
+	buf: [size_of(shared.PacketMapChanges)]u8
+	playerID: shared.ID
 	defer net.close(clientSock)
 
 	for {
@@ -134,17 +134,17 @@ tcp_client_thread :: proc(clientSock: net.TCP_Socket, clientEndp: net.Endpoint) 
 			break
 		}
 
-		type := logic.PacketType{}
-		mem.copy(&type, mem.raw_data(buf[:]), size_of(logic.PacketType))
+		type := shared.PacketType{}
+		mem.copy(&type, mem.raw_data(buf[:]), size_of(shared.PacketType))
 
 		#partial switch type {
 		case .MAP_CHANGE:
-			change := logic.PacketMapChange{}
+			change := shared.PacketMapChange{}
 			change.type = .MAP_CHANGE
 			mem.copy(&change, mem.raw_data(buf[:]), size_of(change))
 
 			if sync.mutex_guard(&mMutex) {
-				logic.map_accept_change(m, change.mapChange)
+				shared.map_accept_change(m, change.mapChange)
 			}
 
 			if sync.mutex_guard(&mcMutex) {
@@ -163,9 +163,9 @@ tcp_client_thread :: proc(clientSock: net.TCP_Socket, clientEndp: net.Endpoint) 
 
 		case .PLAYER_ID:
 			if sync.mutex_guard(&psMutex) {
-				players[idCnt] = logic.Player{
+				players[idCnt] = shared.Player{
 					tcpSock = clientSock,
-					playerInfo = logic.PlayerInfo{
+					playerInfo = shared.PlayerInfo{
 						id = idCnt,
 						pos = {200, 100},
 						health = 100,
@@ -173,7 +173,7 @@ tcp_client_thread :: proc(clientSock: net.TCP_Socket, clientEndp: net.Endpoint) 
 				}
 			}
 
-			packet := logic.PacketPlayerID {
+			packet := shared.PacketPlayerID {
 				type = .PLAYER_ID,
 				playerID = idCnt,
 			}
@@ -187,7 +187,7 @@ tcp_client_thread :: proc(clientSock: net.TCP_Socket, clientEndp: net.Endpoint) 
 			}
 
 			time.sleep(time.Millisecond * 10)
-			mapChangesPacket := logic.PacketMapChanges{}
+			mapChangesPacket := shared.PacketMapChanges{}
 
 			if sync.mutex_guard(&mcMutex) {
 				mapChangesPacket = {
@@ -202,7 +202,7 @@ tcp_client_thread :: proc(clientSock: net.TCP_Socket, clientEndp: net.Endpoint) 
 			}
 
 		case .ROCKET_LAUNCH:
-			packet := logic.PacketLaunchRocket{}
+			packet := shared.PacketLaunchRocket{}
 			mem.copy(&packet, mem.raw_data(buf[:]), size_of(packet))
 			if sync.mutex_guard(&rsMutex) {
 				append(&rockets, packet.rocket)
@@ -242,10 +242,10 @@ main :: proc() {
 		}
 	}
 
-	m = logic.map_alloc()
+	m = shared.map_alloc()
 	defer free(m)
 
-	players = make(map[logic.ID]logic.Player)
+	players = make(map[shared.ID]shared.Player)
 	defer delete(players)
 
 	udpSock, userr := net.make_bound_udp_socket(serverEndp.address, serverEndp.port);

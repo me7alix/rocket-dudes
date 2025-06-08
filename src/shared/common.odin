@@ -1,4 +1,4 @@
-package logic
+package shared
 
 import "core:net"
 import "core:time"

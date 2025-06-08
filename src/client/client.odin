@@ -14,36 +14,36 @@ import "core:math/rand"
 import "core:math/linalg"
 import "base:runtime"
 import rl "vendor:raylib"
-import "../logic/"
+import "../shared/"
 
-m: ^logic.Map
+m: ^shared.Map
 mMutex: sync.Mutex
-mapChanges: logic.MapChanges
+mapChanges: shared.MapChanges
 mcMutex: sync.Mutex
-gamestate: logic.Gamestate
-prevGamestate: logic.Gamestate
+gamestate: shared.Gamestate
+prevGamestate: shared.Gamestate
 deltaDur: time.Duration
 prevTick: time.Tick
 gsMutex: sync.Mutex
 serverEndp: net.Endpoint
 sprites: rl.Texture2D
 groundTexture: rl.Texture2D
-updPlinf: logic.UpdPlayerInfo
-plinf: logic.PlayerInfo
-playerID: logic.ID
+updPlinf: shared.UpdPlayerInfo
+plinf: shared.PlayerInfo
+playerID: shared.ID
 idMutex: sync.Mutex
 
 physicIters := 4
 screenWidth := 1280
 screenHeight := 920
-camera := logic.Camera{{0, 0}, 1.0}
+camera := shared.Camera{{0, 0}, 1.0}
 screenPlayerPos := rl.Vector2{
 	f32(screenWidth), f32(screenHeight)
-} / 2.0 - logic.PLAYER_RECT/2.0
+} / 2.0 - shared.PLAYER_RECT/2.0
 strBuf := strings.Builder{}
 
 tcp_receive_thread :: proc(sock: net.TCP_Socket) {
-	buf: [size_of(logic.PacketMapChanges)]u8
+	buf: [size_of(shared.PacketMapChanges)]u8
 
 	for {
 		_, rerr := net.recv_tcp(sock, buf[:])
@@ -52,40 +52,40 @@ tcp_receive_thread :: proc(sock: net.TCP_Socket) {
 			return
 		}
 
-		packetType: logic.PacketType 
+		packetType: shared.PacketType 
 		mem.copy(&packetType, mem.raw_data(buf[:]), size_of(packetType))
 
 		#partial switch packetType {
 		case .PLAYER_ID:
-			playerIDPacket := logic.PacketPlayerID{}
+			playerIDPacket := shared.PacketPlayerID{}
 			mem.copy(&playerIDPacket, mem.raw_data(buf[:]), size_of(playerIDPacket))
 			if sync.guard(&idMutex) {
 				playerID = playerIDPacket.playerID
 			}
 
 		case .MAP_CHANGES:
-			mapChangesPacket := logic.PacketMapChanges{}
+			mapChangesPacket := shared.PacketMapChanges{}
 			mem.copy(&mapChangesPacket, mem.raw_data(buf[:]), size_of(mapChangesPacket))
 
 			if sync.mutex_guard(&mcMutex) {
 				mapChanges = mapChangesPacket.mapChanges
 				for i: u32 = 0; i < mapChanges.count; i+=1 {
 					if sync.mutex_guard(&mMutex) {
-						logic.map_accept_change(m, mapChanges.changes[i])
+						shared.map_accept_change(m, mapChanges.changes[i])
 					}
 				}
 			}
 
 		case .MAP_CHANGE:
-			mapChangePacket := logic.PacketMapChange{}
+			mapChangePacket := shared.PacketMapChange{}
 			mem.copy(&mapChangePacket, mem.raw_data(buf[:]), size_of(mapChangePacket))
 
 			if sync.mutex_guard(&mMutex) {
-				logic.map_accept_change(m, mapChangePacket.mapChange)
+				shared.map_accept_change(m, mapChangePacket.mapChange)
 			}
 
 		case .EXPLOSION:
-			expPacket := logic.PacketExplosion{}
+			expPacket := shared.PacketExplosion{}
 			mem.copy(&expPacket, mem.raw_data(buf[:]), size_of(expPacket))
 
 			expl_anim_add(expPacket.pos)
@@ -103,7 +103,7 @@ udp_send_upd_plinf :: proc(sock: net.UDP_Socket, buf: []u8) {
 }
 
 udp_receive_thread :: proc(sock: net.UDP_Socket) {
-	buf: [size_of(logic.Gamestate)]u8
+	buf: [size_of(shared.Gamestate)]u8
 	prevTick = time.tick_now()
 
 	for {
@@ -124,9 +124,9 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 }
 
 request_player_id :: proc(tcpSock: net.TCP_Socket, buf: []u8) {
-	playerIDPacket := logic.PacketPlayerID{type = .PLAYER_ID}
-	mem.copy(mem.raw_data(buf[:]), &playerIDPacket, size_of(logic.PacketPlayerID))
-	net.send_tcp(tcpSock, buf[:size_of(logic.PacketPlayerID)])
+	playerIDPacket := shared.PacketPlayerID{type = .PLAYER_ID}
+	mem.copy(mem.raw_data(buf[:]), &playerIDPacket, size_of(shared.PacketPlayerID))
+	net.send_tcp(tcpSock, buf[:size_of(shared.PacketPlayerID)])
 }
 
 draw_hp :: proc(pos: rl.Vector2, hp: f32) {
@@ -136,7 +136,7 @@ draw_hp :: proc(pos: rl.Vector2, hp: f32) {
 	rl.DrawText(cstr, i32(pos.x), i32(pos.y)-14, 16, rl.RED)
 }
 
-draw_all :: proc(myID: logic.ID) {
+draw_all :: proc(myID: shared.ID) {
 	rl.BeginDrawing()
 	rl.ClearBackground(rl.DARKBLUE)
 
@@ -164,15 +164,15 @@ draw_all :: proc(myID: logic.ID) {
 
 		for i := 0; i < int(gamestate.rocketsCount); i+=1 {
 			rocketPos := gamestate.rockets[i].pos
-			if linalg.distance(prevGamestate.rockets[i].pos, gamestate.rockets[i].pos) < logic.ROCKET_RAD*6 {
+			if linalg.distance(prevGamestate.rockets[i].pos, gamestate.rockets[i].pos) < shared.ROCKET_RAD*6 {
 				rocketPos = linalg.lerp(prevGamestate.rockets[i].pos, gamestate.rockets[i].pos, dt)
 			}
-			rl.DrawCircleV(rocketPos-camera.pos, logic.ROCKET_RAD, rl.YELLOW)
+			rl.DrawCircleV(rocketPos-camera.pos, shared.ROCKET_RAD, rl.YELLOW)
 		}
 	}
 
 	if sync.mutex_guard(&mMutex) {
-		logic.map_draw(m, camera.pos, groundTexture)
+		shared.map_draw(m, camera.pos, groundTexture)
 	}
 
 	expl_anim_update()
@@ -185,7 +185,6 @@ main :: proc() {
 		fmt.println("Usage: [ADDRESS]:[PORT] [HIGH_REF_RATE]")
 		fmt.println("  [ADDRESS]:[PORT]    - server address and port to listen on")
 		fmt.println("  [HIGH_REF_RATE]     - set to 1 for 144fps, 0 for 60fps")
-		fmt.println("                        (default is 0)")
 		return
 	} else {
 		val, ok := net.parse_endpoint(os.args[1])
@@ -202,7 +201,7 @@ main :: proc() {
 	explAnims = make([dynamic]ExplosionAnim)
 	defer delete(explAnims)
 
-	m = logic.map_alloc()
+	m = shared.map_alloc()
 	defer free(m)
 
 	buf: [2048]u8 
@@ -257,7 +256,7 @@ main :: proc() {
 		updPlinf = {}
 		updPlinf.id = myID
 		updPlinf.viewDir = rl.GetMousePosition() -
-			(screenPlayerPos + logic.PLAYER_RECT / 2.0)
+			(screenPlayerPos + shared.PLAYER_RECT / 2.0)
 
 		if rl.IsKeyDown(rl.KeyboardKey.D) {
 			updPlinf.moveDir = 1
