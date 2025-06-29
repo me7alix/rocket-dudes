@@ -56,10 +56,12 @@ rocket_check_meatshot :: proc(rocket: shared.Rocket, buf: []u8) -> bool {
 		if sync.mutex_guard(&mMutex) {
 			shared.map_accept_change(m, change.mapChange)
 		}
+
 		if sync.mutex_guard(&mcMutex) {
 			mapChanges.changes[mapChanges.count] = change.mapChange
 			mapChanges.count += 1
 		}
+
 		if sync.mutex_guard(&tsMutex) {
 			mem.copy(mem.raw_data(buf[:]), &change, size_of(change))
 			for _, player in players {

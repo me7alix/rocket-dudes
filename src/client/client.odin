@@ -18,8 +18,6 @@ import "../shared/"
 
 m: ^shared.Map
 mMutex: sync.Mutex
-mapChanges: shared.MapChanges
-mcMutex: sync.Mutex
 gamestate: shared.Gamestate
 prevGamestate: shared.Gamestate
 deltaDur: time.Duration
@@ -67,12 +65,10 @@ tcp_receive_thread :: proc(sock: net.TCP_Socket) {
 			mapChangesPacket := shared.PacketMapChanges{}
 			mem.copy(&mapChangesPacket, mem.raw_data(buf[:]), size_of(mapChangesPacket))
 
-			if sync.mutex_guard(&mcMutex) {
-				mapChanges = mapChangesPacket.mapChanges
+			mapChanges := mapChangesPacket.mapChanges
+			if sync.mutex_guard(&mMutex) {
 				for i: u32 = 0; i < mapChanges.count; i+=1 {
-					if sync.mutex_guard(&mMutex) {
-						shared.map_accept_change(m, mapChanges.changes[i])
-					}
+					shared.map_accept_change(m, mapChanges.changes[i])
 				}
 			}
 
@@ -185,7 +181,7 @@ main :: proc() {
 	if len(os.args) < 3 {
 		fmt.println("Usage: [ADDRESS]:[PORT] [HIGH_REF_RATE]")
 		fmt.println("  [ADDRESS]:[PORT]    - server address and port to listen on")
-		fmt.println("  [HIGH_REF_RATE]     - set to 1 for 144fps, 0 for 60fps")
+		fmt.println("  [HIGH_REF_RATE]	   - set to 1 for 144fps, 0 for 60fps")
 		return
 	} else {
 		val, ok := net.parse_endpoint(os.args[1])
@@ -257,7 +253,7 @@ main :: proc() {
 		updPlinf = {}
 		updPlinf.id = myID
 		updPlinf.viewDir = rl.GetMousePosition() -
-			(screenPlayerPos + shared.PLAYER_RECT / 2.0)
+		(screenPlayerPos + shared.PLAYER_RECT / 2.0)
 
 		if rl.IsKeyDown(rl.KeyboardKey.D) {
 			updPlinf.moveDir = 1

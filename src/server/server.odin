@@ -140,7 +140,6 @@ tcp_client_thread :: proc(clientSock: net.TCP_Socket, clientEndp: net.Endpoint) 
 		#partial switch type {
 		case .MAP_CHANGE:
 			change := shared.PacketMapChange{}
-			change.type = .MAP_CHANGE
 			mem.copy(&change, mem.raw_data(buf[:]), size_of(change))
 
 			if sync.mutex_guard(&mMutex) {
@@ -198,7 +197,7 @@ tcp_client_thread :: proc(clientSock: net.TCP_Socket, clientEndp: net.Endpoint) 
 
 			mem.copy(mem.raw_data(buf[:]), &mapChangesPacket, size_of(mapChangesPacket))
 			if sync.mutex_guard(&tsMutex) {
-				net.send_tcp(clientSock, buf[:size_of(mapChanges)])
+				net.send_tcp(clientSock, buf[:size_of(mapChangesPacket)])
 			}
 
 		case .ROCKET_LAUNCH:
