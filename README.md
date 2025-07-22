@@ -4,6 +4,7 @@ Multiplayer game written in Odin
 
 
 Implemented features:
+ - map sync for newly connected players
  - destructible map
  - realtime map sync
  - rockets shooting
