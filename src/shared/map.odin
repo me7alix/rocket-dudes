@@ -284,9 +284,11 @@ map_detect_collision :: proc(
 map_alloc :: proc() -> ^Map {
 	m := new(Map)
 	m.ptr = MAX_VOXELS-1
+
 	for i := u32(0); i < MAX_VOXELS; i+=1 {
 		m.emptyIndces[i] = MAX_VOXELS-i-1;
 	}
+
 	map_add(m, Voxel{
 		isIntact = true,
 		isColored = true,

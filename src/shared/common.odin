@@ -22,9 +22,8 @@ ROCKET_SPEED :: 700
 PacketType :: enum {
 	EXPLOSION,
 	ROCKET_LAUNCH,
-	MAP_CHANGES,
 	MAP_CHANGE,
-	PLAYER_ID,
+	HANDSHAKE,
 }
 
 PacketPlayerID :: struct {
@@ -32,19 +31,15 @@ PacketPlayerID :: struct {
 	playerID: u16,
 }
 
-PacketMapChanges :: struct {
-	type: PacketType,
-	mapChanges: MapChanges,
-}
-
 PacketMapChange :: struct {
 	type: PacketType,
 	mapChange: MapChange,
 }
 
-PacketLaunchRocket :: struct {
+PacketHandshake :: struct {
 	type: PacketType,
-	rocket: Rocket,
+	playerID: ID,
+	mapChanges: MapChanges,
 }
 
 PacketExplosion :: struct {

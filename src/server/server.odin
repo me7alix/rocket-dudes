@@ -70,15 +70,16 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 		mem.copy(&change, mem.raw_data(buf[:]), size_of(change))
 
 		if sync.mutex_guard(&psMutex) {
-			ok := change.id in players
-			if ok {
+			if change.id in players {
 				pl := &players[change.id]
 				pl.udpEndp = peer
 				pl.playerInfo.moveDir = change.moveDir
+
 				if change.isJumping && pl.playerInfo.onGround {
 					pl.playerInfo.onGround = false
 					pl.playerInfo.vel.y -= shared.PLAYER_JUMP_FORCE
 				}
+
 				if change.isDigging && pl.diggingTimer > shared.PLAYER_DIGGING_SPEED {
 					pl.diggingTimer = 0
 					packet := shared.PacketMapChange{
@@ -89,9 +90,16 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 							rad = 35,
 						},
 					}
-					if sync.mutex_guard(&mcMutex) {
+
+					if sync.mutex_guard(&mMutex) {
 						shared.map_accept_change(m, packet.mapChange)
 					}
+
+					if sync.mutex_guard(&mcMutex) {
+						mapChanges.changes[mapChanges.count] = packet.mapChange
+						mapChanges.count +=	1
+					}
+
 					mem.copy(mem.raw_data(buf[:]), &packet, size_of(packet))
 					for _, player in players {
 						if sync.mutex_guard(&tsMutex) {
@@ -99,6 +107,7 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 						}
 					}
 				}
+
 				if change.isShooting && pl.shootingTimer > shared.PLAYER_SHOOTING_SPEED {
 					pl.shootingTimer = 0
 					rocket := shared.Rocket{
@@ -106,6 +115,7 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 						pos = pl.playerInfo.pos + shared.PLAYER_RECT / 2.0,
 						dir = rl.Vector2Normalize(change.viewDir),
 					}
+
 					if sync.mutex_guard(&rsMutex) {
 						append(&rockets, rocket)
 					}
@@ -116,7 +126,7 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 }
 
 tcp_client_thread :: proc(clientSock: net.TCP_Socket, clientEndp: net.Endpoint) {
-	buf: [size_of(shared.PacketMapChanges)]u8
+	buf: [size_of(shared.PacketHandshake)]u8
 	playerID: shared.ID
 	defer net.close(clientSock)
 
@@ -138,29 +148,7 @@ tcp_client_thread :: proc(clientSock: net.TCP_Socket, clientEndp: net.Endpoint) 
 		mem.copy(&type, mem.raw_data(buf[:]), size_of(shared.PacketType))
 
 		#partial switch type {
-		case .MAP_CHANGE:
-			change := shared.PacketMapChange{}
-			mem.copy(&change, mem.raw_data(buf[:]), size_of(change))
-
-			if sync.mutex_guard(&mMutex) {
-				shared.map_accept_change(m, change.mapChange)
-			}
-
-			if sync.mutex_guard(&mcMutex) {
-				mapChanges.changes[mapChanges.count] = change.mapChange
-				mapChanges.count += 1
-			}
-
-			if sync.mutex_guard(&psMutex) {
-				if sync.mutex_guard(&tsMutex) {
-					for _, player in players {
-						net.send_tcp(player.tcpSock, buf[:size_of(change)])
-						time.sleep(time.Microsecond * 250)
-					}
-				}
-			}
-
-		case .PLAYER_ID:
+		case .HANDSHAKE:
 			if sync.mutex_guard(&psMutex) {
 				players[idCnt] = shared.Player{
 					tcpSock = clientSock,
@@ -170,41 +158,22 @@ tcp_client_thread :: proc(clientSock: net.TCP_Socket, clientEndp: net.Endpoint) 
 						health = 100,
 					},	
 				}
+
+				playerID = idCnt
+				idCnt += 1
 			}
 
-			packet := shared.PacketPlayerID {
-				type = .PLAYER_ID,
-				playerID = idCnt,
+			sync.lock(&mcMutex)
+			packet := shared.PacketHandshake{
+				type = .HANDSHAKE,
+				playerID = playerID,
+				mapChanges = mapChanges,
 			}
-
-			playerID = idCnt
-			idCnt += 1
+			sync.unlock(&mcMutex)
 
 			mem.copy(mem.raw_data(buf[:]), &packet, size_of(packet))
 			if sync.mutex_guard(&tsMutex) {
 				net.send_tcp(clientSock, buf[:size_of(packet)])
-			}
-
-			time.sleep(time.Millisecond * 10)
-			mapChangesPacket := shared.PacketMapChanges{}
-
-			if sync.mutex_guard(&mcMutex) {
-				mapChangesPacket = {
-					type = .MAP_CHANGES,
-					mapChanges = mapChanges,
-				}
-			}
-
-			mem.copy(mem.raw_data(buf[:]), &mapChangesPacket, size_of(mapChangesPacket))
-			if sync.mutex_guard(&tsMutex) {
-				net.send_tcp(clientSock, buf[:size_of(mapChangesPacket)])
-			}
-
-		case .ROCKET_LAUNCH:
-			packet := shared.PacketLaunchRocket{}
-			mem.copy(&packet, mem.raw_data(buf[:]), size_of(packet))
-			if sync.mutex_guard(&rsMutex) {
-				append(&rockets, packet.rocket)
 			}
 		}
 	}

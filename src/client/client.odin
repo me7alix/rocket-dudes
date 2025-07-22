@@ -41,7 +41,7 @@ screenPlayerPos := rl.Vector2{
 strBuf := strings.Builder{}
 
 tcp_receive_thread :: proc(sock: net.TCP_Socket) {
-	buf: [size_of(shared.PacketMapChanges)]u8
+	buf: [size_of(shared.PacketHandshake)]u8
 
 	for {
 		_, rerr := net.recv_tcp(sock, buf[:])
@@ -54,21 +54,16 @@ tcp_receive_thread :: proc(sock: net.TCP_Socket) {
 		mem.copy(&packetType, mem.raw_data(buf[:]), size_of(packetType))
 
 		#partial switch packetType {
-		case .PLAYER_ID:
-			playerIDPacket := shared.PacketPlayerID{}
-			mem.copy(&playerIDPacket, mem.raw_data(buf[:]), size_of(playerIDPacket))
+		case .HANDSHAKE:
+			handshakePacket := shared.PacketHandshake{}
+			mem.copy(&handshakePacket, mem.raw_data(buf[:]), size_of(handshakePacket))
 			if sync.guard(&idMutex) {
-				playerID = playerIDPacket.playerID
+				playerID = handshakePacket.playerID
 			}
 
-		case .MAP_CHANGES:
-			mapChangesPacket := shared.PacketMapChanges{}
-			mem.copy(&mapChangesPacket, mem.raw_data(buf[:]), size_of(mapChangesPacket))
-
-			mapChanges := mapChangesPacket.mapChanges
 			if sync.mutex_guard(&mMutex) {
-				for i: u32 = 0; i < mapChanges.count; i+=1 {
-					shared.map_accept_change(m, mapChanges.changes[i])
+				for i: u32 = 0; i < handshakePacket.mapChanges.count; i+=1 {
+					shared.map_accept_change(m, handshakePacket.mapChanges.changes[i])
 				}
 			}
 
@@ -121,7 +116,7 @@ udp_receive_thread :: proc(sock: net.UDP_Socket) {
 }
 
 request_player_id :: proc(tcpSock: net.TCP_Socket, buf: []u8) {
-	playerIDPacket := shared.PacketPlayerID{type = .PLAYER_ID}
+	playerIDPacket := shared.PacketPlayerID{type = .HANDSHAKE}
 	mem.copy(mem.raw_data(buf[:]), &playerIDPacket, size_of(shared.PacketPlayerID))
 	net.send_tcp(tcpSock, buf[:size_of(shared.PacketPlayerID)])
 }
