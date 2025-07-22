@@ -10,7 +10,6 @@ Implemented features:
  - animations
 
 Unimplemented features:
- - map sync for newly connected players
  - random map generation
  - weapons system
 
